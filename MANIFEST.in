@@ -1,5 +1,6 @@
 include SKILL.md
 include README.md
+include README.en.md
 include LICENSE
 include CHANGELOG.md
 include requirements.txt

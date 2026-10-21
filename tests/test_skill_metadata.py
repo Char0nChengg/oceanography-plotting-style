@@ -23,6 +23,8 @@ def test_skill_frontmatter():
 def test_required_skill_files():
     required = [
         "SKILL.md",
+        "README.md",
+        "README.en.md",
         "references/style-reference.md",
         "references/data-prep.md",
         "references/figure-recipes.md",

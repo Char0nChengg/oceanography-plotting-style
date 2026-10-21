@@ -1,5 +1,7 @@
 # Oceanography Plotting Style
 
+**中文** | [English](README.en.md)
+
 > 物理海洋学论文图的“可复用绘图规范 + 代码工具箱”。既是 DeepSeek Harness / Agent Skill，也是一个可单独安装的 Python 小包。
 
 [![CI](https://github.com/Char0nChengg/oceanography-plotting-style/actions/workflows/ci.yml/badge.svg)](https://github.com/Char0nChengg/oceanography-plotting-style/actions/workflows/ci.yml)
@@ -23,7 +25,7 @@
 
 这个项目把上述经验固化成一套 **可被 Agent 加载的 Skill**，同时提供可导入的 Python 工具、可运行的模板、测试和 CI。目标不是“画出来”，而是**能直接放进论文**。
 
-English: a reusable Agent Skill and Python toolkit for publication-quality physical-oceanography figures with Matplotlib, Cartopy and cmocean. It covers map layout, colormap semantics, time axes, data validation, journal presets, FFT/AR(1) significance, accessibility screening, and pre-submission QA.
+English introduction: [README.en.md](README.en.md) — a reusable Agent Skill and Python toolkit for publication-quality physical-oceanography figures with Matplotlib, Cartopy and cmocean.
 
 ---
 
@@ -253,7 +255,8 @@ apply_journal_style("ams")
 ```text
 .
 ├── SKILL.md                  # Agent Skill 入口
-├── README.md
+├── README.md                 # 中文介绍
+├── README.en.md              # English introduction
 ├── references/
 │   ├── style-reference.md    # 字体、版面、地图、色标
 │   ├── data-prep.md          # xarray、区域、经度、滤波

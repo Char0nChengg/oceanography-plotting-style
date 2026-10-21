@@ -1,0 +1,330 @@
+# Oceanography Plotting Style
+
+> A reusable plotting standard and code toolkit for physical-oceanography figures. It works as a DeepSeek Harness / Agent Skill and as a standalone Python package.
+
+**English** | [中文](README.md)
+
+[![CI](https://github.com/Char0nChengg/oceanography-plotting-style/actions/workflows/ci.yml/badge.svg)](https://github.com/Char0nChengg/oceanography-plotting-style/actions/workflows/ci.yml)
+[![Python](https://img.shields.io/badge/python-3.10%2B-blue)](https://www.python.org/)
+[![License: MIT](https://img.shields.io/badge/license-MIT-green)](LICENSE)
+
+---
+
+## What is this?
+
+When preparing an oceanography paper, the hard part is rarely the `pcolormesh` call. The recurring problems are:
+
+- longitude/latitude order is reversed, or 1-D/2-D coordinates are broadcast incorrectly;
+- 0–360° and −180–180° conventions are mixed, so dateline-crossing maps split apart;
+- the colorbar `extend` flag does not match how the data were clipped;
+- font sizes look fine on a 22-inch canvas but become unreadable at final print width;
+- `set_aspect("auto")` stretches the map;
+- 10 m coastlines turn a six-panel PDF into tens of megabytes;
+- a multi-year time axis still uses `%m-%d`;
+- the figure runs, but labels are clipped, ticks overlap, and the colorbar has no units.
+
+This project turns those lessons into a **loadable Agent Skill** plus importable Python utilities, runnable templates, tests, and CI. The goal is not merely “a figure that runs”; it is **a figure that can go into a paper**.
+
+---
+
+## Examples
+
+3 × 2 regional maps (synthetic data, layout/colormap demo only):
+
+![3x2 map demo](docs/assets/map_panel_grid.png)
+
+Map + time series + vertical section (synthetic data):
+
+![mixed panel demo](docs/assets/mixed_panel_grid.png)
+
+> Templates default to `50m` coastlines to keep PDFs small; use `10m` for a single large map. Every template requires an explicit `--demo` flag so synthetic data cannot silently become a result figure.
+
+---
+
+## Features
+
+| Capability | Description |
+|---|---|
+| Regional maps | PlateCarree, lon/lat formatters, adaptive ticks, land/coastline, aspect protection |
+| Multi-panel layouts | Shared colorbars, hidden inner labels, panel letters, GridSpec / explicit colorbar column |
+| Vertical sections / Hovmöller | Depth direction, time axis, symmetric/asymmetric limits, transpose checks |
+| Time series | Mean ± standard deviation, rolling statistics, automatic time locators |
+| FFT | Detrending, windows, one-sided amplitude, AR(1) red-noise Monte-Carlo threshold |
+| Quiver | Arrow length in layout inches, `quiverkey`, density-aware stride |
+| Colormaps | cmocean, `TwoSlopeNorm`, `LogNorm`, `BoundaryNorm`, truncation |
+| Data preparation | xarray dimension normalization, region subsetting, dateline, descending latitude, 2-D coordinates |
+| Journal presets | AGU / AMS / Elsevier / Nature / generic widths and font sizes |
+| Figure QA | Tick-overlap checks, optional canvas-bound checks, approximate CVD/grayscale screening |
+| Reproducibility | `--self-test`, pytest, GitHub Actions, dependency files |
+
+---
+
+## Installation
+
+### Option A: as a DSH / Agent Skill
+
+DSH discovers skills from directories; **do not** use `dsh plugin add` for a skill.
+
+```text
+<project>/.dsh/skills/oceanography-plotting-style/SKILL.md
+```
+
+or globally:
+
+```text
+~/.dsh/skills/oceanography-plotting-style/SKILL.md
+```
+
+Clone/copy this repository to that directory. `SKILL.md` is at the repository root, so the repository itself can serve as the skill directory.
+
+```bash
+git clone https://github.com/Char0nChengg/oceanography-plotting-style.git \
+  .dsh/skills/oceanography-plotting-style
+```
+
+After loading, invoke `/oceanography-plotting-style` where supported; the model can also route to it from the `description`.
+
+### Option B: as a Python package
+
+```bash
+python -m pip install -e ".[full]"
+```
+
+Minimal install (only the base `ocean_plot` helpers):
+
+```bash
+python -m pip install -e .
+```
+
+On Windows, Cartopy is easiest through conda:
+
+```bash
+conda env create -f environment.yml
+conda activate oceanography-plotting-style
+```
+
+---
+
+## Quick start
+
+```python
+from pathlib import Path
+
+import matplotlib
+matplotlib.use("Agg")
+import matplotlib.pyplot as plt
+import cartopy.crs as ccrs
+
+from ocean_plot import (
+    add_map_features, add_panel_label, auto_tick_step, check_figure,
+    get_cmap, save_figure, set_degree_ticks, set_ocean_style, validate_grid,
+)
+from ocean_journal import get_journal, apply_journal_style
+
+journal = get_journal("agu")
+apply_journal_style(journal.key)
+set_ocean_style(base_size=journal.body_pt)
+
+lon_min, lon_max = 112.0, 132.0
+lat_min, lat_max = 17.0, 32.5
+fig_width = journal.width_in("double")
+
+# lon, lat, ssh = ...  # your data
+validate_grid(lon, lat, ssh)
+
+fig, ax = plt.subplots(
+    figsize=(fig_width, 4.8),
+    subplot_kw={"projection": ccrs.PlateCarree()},
+    constrained_layout=True,
+)
+projection = ccrs.PlateCarree()
+mesh = ax.pcolormesh(
+    lon, lat, ssh, cmap=get_cmap("cmo.dense"),
+    vmin=0, vmax=0.3, shading="auto",
+    transform=projection, rasterized=True,
+)
+ax.set_extent([lon_min, lon_max, lat_min, lat_max], crs=projection)
+add_map_features(ax, scale="50m")
+step_x, step_y = auto_tick_step(
+    lon_min, lon_max, lat_min, lat_max,
+    figsize=(fig_width, 4.8), fontsize=journal.tick_pt,
+)
+set_degree_ticks(ax, [lon_min, lon_max, lat_min, lat_max],
+                 lon_step=step_x, lat_step=step_y)
+ax.set_aspect("equal")
+add_panel_label(ax, "(a)")
+
+cbar = fig.colorbar(mesh, ax=ax, extend="max")
+cbar.set_label("SSH amplitude (m)")
+
+for issue in check_figure(fig, check_bounds=True):
+    print("layout warning:", issue)
+save_figure(fig, Path("figures/Fig_01.png"), dpi=300, also_pdf=True)
+```
+
+> See `templates/map_panel_grid.py` for the complete, runnable version. The snippet above omits data loading and the `main()` wrapper.
+
+---
+
+## Templates
+
+```bash
+# 3 x 2 maps
+python templates/map_panel_grid.py --demo
+
+# map + time series + vertical section
+python templates/mixed_panel_grid.py --demo
+```
+
+Without `--demo`, the templates exit immediately and remind you to replace the synthetic data.
+
+---
+
+## Data preparation
+
+```python
+from ocean_data import canonicalize_dims, subset_region, pick_var, grid_arrays
+
+ds = canonicalize_dims(ds)
+ds = subset_region(ds, lon_bounds=(112, 132), lat_bounds=(17, 32.5))
+da = pick_var(ds, "ssh")
+lon, lat, data = grid_arrays(da)
+```
+
+- Supports 1-D regular and 2-D curvilinear longitude/latitude.
+- Dateline-crossing and negative-longitude boxes return monotonic unwrapped 0–360° coordinates (possibly > 360). Use `central_longitude=180` or an equivalent projection.
+- `load_for_plot()` preserves the time dimension unless you explicitly select a time; it never silently takes `time=0`.
+
+---
+
+## Spectral analysis
+
+```python
+from ocean_spectral import fft_amplitude, ar1_threshold, dominant_period
+
+freq, amp = fft_amplitude(x, dt=1.0, detrend="linear", window="hann")
+result = ar1_threshold(x, dt=1.0, confidence=0.95, n_sim=500, seed=0)
+period = dominant_period(freq, amp)
+```
+
+The AR(1) threshold is an explicit null hypothesis: fit a red-noise model, then Monte-Carlo the amplitude spectrum. It is not a universal significance test; document `n_sim`, `confidence`, the window, and the detrending method.
+
+---
+
+## Colormaps and accessibility
+
+```python
+from ocean_access import accessibility_report
+
+report = accessibility_report("cmo.balance")
+print(report["warnings"])
+```
+
+- Grayscale luminance separation.
+- Approximate deuteranopia / protanopia simulation.
+- The result is a screening aid, not an accessibility certification.
+
+---
+
+## Journal presets
+
+| key | Intended use | Single column | Double column | Body text |
+|---|---|---:|---:|---:|
+| `generic` | General manuscript | 89 mm | 183 mm | 8 pt |
+| `agu` | AGU / JGR / GRL | 89 mm | 180 mm | 8 pt |
+| `ams` | AMS | 85 mm | 178 mm | 8 pt |
+| `elsevier` | Elsevier | 90 mm | 190 mm | 8 pt |
+| `nature` | Nature portfolio | 89 mm | 183 mm | 6 pt |
+
+These are practical defaults, not official journal templates. Check the latest author guidelines before submission.
+
+```python
+from ocean_journal import get_journal, figure_size, apply_journal_style
+
+style = get_journal("ams")
+w, h = figure_size("ams", "double", height_mm=200)
+apply_journal_style("ams")
+```
+
+---
+
+## Project structure
+
+```text
+.
+├── SKILL.md                  # Agent Skill entry point
+├── README.md                 # Chinese introduction
+├── README.en.md              # English introduction
+├── references/
+│   ├── style-reference.md    # Typography, layout, maps, colormaps
+│   ├── data-prep.md          # xarray, regions, longitude, filtering
+│   └── figure-recipes.md     # Hovmöller, sections, FFT, quiver
+├── scripts/
+│   ├── ocean_plot.py         # Ticks, maps, colormaps, QA, saving
+│   ├── ocean_data.py         # Dimension normalization, regions, variables
+│   ├── ocean_spectral.py     # FFT + AR(1) thresholds
+│   ├── ocean_journal.py      # Journal presets
+│   └── ocean_access.py       # Grayscale/CVD screening
+├── templates/
+│   ├── map_panel_grid.py
+│   └── mixed_panel_grid.py
+├── tests/
+├── docs/assets/
+└── .github/workflows/ci.yml
+```
+
+---
+
+## Tests and validation
+
+```bash
+python scripts/ocean_plot.py --self-test
+pytest -q
+```
+
+Rendered and verified locally with:
+
+- Python 3.13
+- Matplotlib 3.10.6
+- Cartopy 0.25.0
+- cmocean 3.0.3
+- xarray / scipy / pandas (Anaconda environment)
+
+CI installs Cartopy on Ubuntu with Python 3.10/3.12, runs the tests, and renders both templates.
+
+---
+
+## Known boundaries
+
+- Focused on regular 1-D and curvilinear 2-D longitude/latitude grids. It does **not** automatically convert ROMS staggered grids, unstructured triangular meshes, or projected coordinates in metres/kilometres.
+- Journal widths and font sizes are practical defaults, not a substitute for current author guidelines.
+- `auto_tick_step()` is still a heuristic; `check_figure()` catches actual tick overlap, but this is not pixel-level image regression.
+- CVD matrices are approximations; use a dedicated tool for final accessibility review.
+- The AR(1) threshold assumes a single red-noise null hypothesis; complex spectral peaks need problem-specific tests.
+- Natural Earth data are downloaded on first use; cache them for offline work.
+- All template data are synthetic and must be replaced; `--demo` is a safety switch.
+
+---
+
+## Contributing
+
+Issues and pull requests are welcome, especially:
+
+- new journal presets;
+- unstructured-grid or projected-coordinate examples;
+- end-to-end examples with public real data;
+- visual-regression baselines.
+
+Please make sure `pytest -q` passes and include the rendered PNG with visual changes.
+
+---
+
+## License
+
+MIT. See [LICENSE](LICENSE).
+
+## Citation
+
+If this project helps your paper, you may mention it in the methods or acknowledgements:
+
+> Figures were prepared with the `oceanography-plotting-style` toolkit (Char0nChengg, 2026), built on Matplotlib, Cartopy and cmocean.
