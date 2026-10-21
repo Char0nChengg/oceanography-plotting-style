@@ -1,0 +1,43 @@
+name: CI
+
+on:
+  push:
+    branches: ["main"]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.10", "3.12"]
+    env:
+      MPLBACKEND: Agg
+      PYTHONDONTWRITEBYTECODE: "1"
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: pip
+
+      - name: Install system libraries for Cartopy
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libgeos-dev libproj-dev proj-data
+
+      - name: Install package
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -e ".[full,test]"
+
+      - name: Run tests
+        run: pytest -q
+
+      - name: Render demo templates
+        run: |
+          python templates/map_panel_grid.py --demo
+          python templates/mixed_panel_grid.py --demo

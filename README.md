@@ -1,0 +1,329 @@
+# Oceanography Plotting Style
+
+> 物理海洋学论文图的“可复用绘图规范 + 代码工具箱”。既是 DeepSeek Harness / Agent Skill，也是一个可单独安装的 Python 小包。
+
+[![CI](https://github.com/Char0nChengg/oceanography-plotting-style/actions/workflows/ci.yml/badge.svg)](https://github.com/Char0nChengg/oceanography-plotting-style/actions/workflows/ci.yml)
+[![Python](https://img.shields.io/badge/python-3.10%2B-blue)](https://www.python.org/)
+[![License: MIT](https://img.shields.io/badge/license-MIT-green)](LICENSE)
+
+---
+
+## 这是什么？
+
+做海洋学论文图时，真正花时间的通常不是 `pcolormesh`，而是这些反复出现的问题：
+
+- 经纬度顺序反了、1D/2D 坐标广播错了；
+- 0–360° 和 −180–180° 混用，跨日界线图断裂；
+- 色标 `extend` 和实际数据范围不一致；
+- 多面板字号在最终印刷宽度下小得看不清；
+- 地图被 `set_aspect("auto")` 拉扁；
+- 10m 海岸线让 PDF 变成几十 MB；
+- 时间轴跨年却还在用 `%m-%d`；
+- 图能跑，但标签被裁、刻度重叠、色标没有单位。
+
+这个项目把上述经验固化成一套 **可被 Agent 加载的 Skill**，同时提供可导入的 Python 工具、可运行的模板、测试和 CI。目标不是“画出来”，而是**能直接放进论文**。
+
+English: a reusable Agent Skill and Python toolkit for publication-quality physical-oceanography figures with Matplotlib, Cartopy and cmocean. It covers map layout, colormap semantics, time axes, data validation, journal presets, FFT/AR(1) significance, accessibility screening, and pre-submission QA.
+
+---
+
+## 示例
+
+3×2 区域地图（合成数据，仅演示版式与色标）：
+
+![3x2 map demo](docs/assets/map_panel_grid.png)
+
+地图 + 时间序列 + 垂向剖面（合成数据）：
+
+![mixed panel demo](docs/assets/mixed_panel_grid.png)
+
+> 模板默认使用 `50m` 海岸线以控制 PDF 体积；单张大图可切到 `10m`。所有模板都要求显式 `--demo` 才会运行，避免把合成图误当结果图。
+
+---
+
+## 主要能力
+
+| 能力 | 说明 |
+|---|---|
+| 区域地图 | PlateCarree、经纬度 formatter、自适应刻度、陆地/海岸线、比例保护 |
+| 多面板版式 | 共用色标、内侧标签隐藏、面板字母、GridSpec / 显式 colorbar 列 |
+| 垂向剖面 / Hovmöller | 深度方向、时间轴、对称/非对称色标、转置校验 |
+| 时间序列 | 均值 ± 标准差、滚动统计、自动时间 locator |
+| FFT | 去趋势、窗函数、单边振幅谱、AR(1) 红噪声 Monte-Carlo 阈值 |
+| Quiver | 按版面英寸控制箭头长度、`quiverkey`、按密度取 stride |
+| 色标 | cmocean 映射、`TwoSlopeNorm`、`LogNorm`、`BoundaryNorm`、色标截取 |
+| 数据准备 | xarray 维度统一、区域裁剪、跨日界线、降序纬度、2D 坐标 |
+| 期刊预设 | AGU / AMS / Elsevier / Nature / generic 的栏宽与字号 |
+| 出图 QA | 刻度重叠检测、画布越界检查、色盲/灰度近似筛查 |
+| 可复现 | `--self-test`、pytest、GitHub Actions、依赖文件 |
+
+---
+
+## 安装
+
+### 方式 A：作为 DSH / Agent Skill
+
+DSH 通过目录发现 skill，**不是** `dsh plugin add`：
+
+```text
+<project>/.dsh/skills/oceanography-plotting-style/SKILL.md
+```
+
+或全局：
+
+```text
+~/.dsh/skills/oceanography-plotting-style/SKILL.md
+```
+
+把本仓库克隆/复制到上述目录即可。`SKILL.md` 在仓库根目录，所以可以直接把仓库目录作为 skill 目录。
+
+```bash
+git clone https://github.com/Char0nChengg/oceanography-plotting-style.git \
+  .dsh/skills/oceanography-plotting-style
+```
+
+加载后可用 `/oceanography-plotting-style` 调用（具体命令取决于客户端），模型也会根据 `description` 自动路由。
+
+### 方式 B：作为 Python 包
+
+```bash
+python -m pip install -e ".[full]"
+```
+
+最小依赖（只有 `ocean_plot` 的基础功能）：
+
+```bash
+python -m pip install -e .
+```
+
+Cartopy 在 Windows 上建议用 conda：
+
+```bash
+conda env create -f environment.yml
+conda activate oceanography-plotting-style
+```
+
+---
+
+## 快速开始
+
+```python
+from pathlib import Path
+
+import matplotlib
+matplotlib.use("Agg")
+import matplotlib.pyplot as plt
+import cartopy.crs as ccrs
+
+from ocean_plot import (
+    add_map_features, add_panel_label, auto_tick_step, check_figure,
+    get_cmap, save_figure, set_degree_ticks, set_ocean_style, validate_grid,
+)
+from ocean_journal import get_journal, apply_journal_style
+
+journal = get_journal("agu")
+apply_journal_style(journal.key)
+set_ocean_style(base_size=journal.body_pt)
+
+lon_min, lon_max = 112.0, 132.0
+lat_min, lat_max = 17.0, 32.5
+fig_width = journal.width_in("double")
+
+# lon, lat, ssh = ...  # 你的数据
+validate_grid(lon, lat, ssh)
+
+fig, ax = plt.subplots(
+    figsize=(fig_width, 4.8),
+    subplot_kw={"projection": ccrs.PlateCarree()},
+    constrained_layout=True,
+)
+projection = ccrs.PlateCarree()
+mesh = ax.pcolormesh(
+    lon, lat, ssh, cmap=get_cmap("cmo.dense"),
+    vmin=0, vmax=0.3, shading="auto",
+    transform=projection, rasterized=True,
+)
+ax.set_extent([lon_min, lon_max, lat_min, lat_max], crs=projection)
+add_map_features(ax, scale="50m")
+step_x, step_y = auto_tick_step(
+    lon_min, lon_max, lat_min, lat_max,
+    figsize=(fig_width, 4.8), fontsize=journal.tick_pt,
+)
+set_degree_ticks(ax, [lon_min, lon_max, lat_min, lat_max],
+                 lon_step=step_x, lat_step=step_y)
+ax.set_aspect("equal")
+add_panel_label(ax, "(a)")
+
+cbar = fig.colorbar(mesh, ax=ax, extend="max")
+cbar.set_label("SSH amplitude (m)")
+
+for issue in check_figure(fig, check_bounds=True):
+    print("layout warning:", issue)
+save_figure(fig, Path("figures/Fig_01.png"), dpi=300, also_pdf=True)
+```
+
+> 完整可运行写法见 `templates/map_panel_grid.py`；上面的片段省略了数据读取和 `main()` 包装。
+
+---
+
+## 运行模板
+
+```bash
+# 3×2 地图
+python templates/map_panel_grid.py --demo
+
+# 地图 + 时间序列 + 垂向剖面
+python templates/mixed_panel_grid.py --demo
+```
+
+不带 `--demo` 会直接退出，提醒你替换合成数据。
+
+---
+
+## 数据准备
+
+```python
+from ocean_data import canonicalize_dims, subset_region, pick_var, grid_arrays
+
+ds = canonicalize_dims(ds)
+ds = subset_region(ds, lon_bounds=(112, 132), lat_bounds=(17, 32.5))
+da = pick_var(ds, "ssh")
+lon, lat, data = grid_arrays(da)
+```
+
+- 支持 1D 规则经纬度和 2D 曲线经纬度；
+- 跨日界线/负经度会返回单调展开的 0–360° 坐标（可能 >360），需配 `central_longitude=180` 或等价投影；
+- `load_for_plot()` 默认保留时间维，不会静默 `isel(time=0)`。
+
+---
+
+## 谱分析
+
+```python
+from ocean_spectral import fft_amplitude, ar1_threshold, dominant_period
+
+freq, amp = fft_amplitude(x, dt=1.0, detrend="linear", window="hann")
+result = ar1_threshold(x, dt=1.0, confidence=0.95, n_sim=500, seed=0)
+period = dominant_period(freq, amp)
+```
+
+AR(1) 阈值是一个明确的零假设检验：先拟合红噪声，再做 Monte-Carlo 模拟。它不是万能的显著性检验，方法部分要写清楚。
+
+---
+
+## 色标与可访问性
+
+```python
+from ocean_access import accessibility_report
+
+report = accessibility_report("cmo.balance")
+print(report["warnings"])
+```
+
+- 灰度亮度间隔检查；
+- 近似 deuteranopia / protanopia 模拟；
+- 结果是筛查，不是无障碍认证。
+
+---
+
+## 期刊预设
+
+| key | 适用 | 单栏 | 双栏 | 正文字号 |
+|---|---|---:|---:|---:|
+| `generic` | 通用 | 89 mm | 183 mm | 8 pt |
+| `agu` | AGU / JGR / GRL | 89 mm | 180 mm | 8 pt |
+| `ams` | AMS | 85 mm | 178 mm | 8 pt |
+| `elsevier` | Elsevier | 90 mm | 190 mm | 8 pt |
+| `nature` | Nature 系列 | 89 mm | 183 mm | 6 pt |
+
+这些是**实用默认值**，不是期刊官方模板；投稿前请核对最新 author guidelines。
+
+```python
+from ocean_journal import get_journal, figure_size, apply_journal_style
+
+style = get_journal("ams")
+w, h = figure_size("ams", "double", height_mm=200)
+apply_journal_style("ams")
+```
+
+---
+
+## 项目结构
+
+```text
+.
+├── SKILL.md                  # Agent Skill 入口
+├── README.md
+├── references/
+│   ├── style-reference.md    # 字体、版面、地图、色标
+│   ├── data-prep.md          # xarray、区域、经度、滤波
+│   └── figure-recipes.md     # Hovmöller、剖面、FFT、quiver
+├── scripts/
+│   ├── ocean_plot.py         # 刻度、地图、色标、QA、保存
+│   ├── ocean_data.py         # 维度统一、区域裁剪、变量选择
+│   ├── ocean_spectral.py     # FFT + AR(1) 阈值
+│   ├── ocean_journal.py      # 期刊预设
+│   └── ocean_access.py       # 灰度/CVD 筛查
+├── templates/
+│   ├── map_panel_grid.py
+│   └── mixed_panel_grid.py
+├── tests/
+├── docs/assets/
+└── .github/workflows/ci.yml
+```
+
+---
+
+## 测试与验证
+
+```bash
+python scripts/ocean_plot.py --self-test
+pytest -q
+```
+
+已在以下环境实际渲染验证：
+
+- Python 3.13
+- Matplotlib 3.10.6
+- Cartopy 0.25.0
+- cmocean 3.0.3
+- xarray / scipy / pandas（Anaconda 环境）
+
+CI 在 Ubuntu + Python 3.10/3.12 上安装 Cartopy，运行测试并渲染两个模板。
+
+---
+
+## 已知边界
+
+- 主要支持规则 1D 和 2D 曲线经纬度；**不直接支持** ROMS 交错网格、非结构三角网格、投影坐标（m/km）的自动转换。
+- 期刊栏宽/字号是经验值，不能替代最新投稿指南。
+- `auto_tick_step()` 仍是启发式；`check_figure()` 会抓实际刻度重叠，但不做图像 diff。
+- CVD 矩阵是近似；正式投稿前建议用专用工具复核。
+- AR(1) 阈值只有一个红噪声零假设；复杂谱峰需问题特定的检验。
+- Natural Earth 数据首次使用会下载；离线环境需提前缓存。
+- 模板数据全部是合成的，必须替换；`--demo` 是防误用开关。
+
+---
+
+## 贡献
+
+欢迎提交 issue / PR，尤其是：
+
+- 新的期刊预设；
+- 非结构网格或投影坐标示例；
+- 真实数据（可公开）的端到端示例；
+- 视觉回归基线。
+
+请确保 `pytest -q` 通过，并附上渲染后的 PNG。
+
+---
+
+## License
+
+MIT。见 [LICENSE](LICENSE)。
+
+## 引用
+
+如果这个项目帮到了你的论文，可以在方法/致谢中提及：
+
+> Figures were prepared with the `oceanography-plotting-style` toolkit (Char0nChengg, 2026), built on Matplotlib, Cartopy and cmocean.

@@ -1,0 +1,13 @@
+include SKILL.md
+include README.md
+include LICENSE
+include CHANGELOG.md
+include requirements.txt
+include requirements-dev.txt
+include environment.yml
+include pyproject.toml
+recursive-include references *.md
+recursive-include templates *.py
+recursive-include tests *.py
+recursive-include docs *.png
+recursive-include .github *.yml
