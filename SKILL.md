@@ -101,7 +101,7 @@ if __name__ == "__main__":
     main()
 ```
 
-`ocean_plot` 不是已安装的包：模板会自动把 `scripts/` 加入 `sys.path`；如果在新项目里使用，复制 `ocean_plot.py` 或显式设置 `PYTHONPATH`，不要假定当前工作目录就是 skill 目录。
+`ocean_plot` 不保证在每个环境里都已安装；当前 DSH 环境已做 editable 安装。模板仍会自动把 `scripts/` 加入 `sys.path`；如果在新项目里使用，复制 `ocean_plot.py`、`pip install -e .` 或显式设置 `PYTHONPATH`，不要假定当前工作目录就是 skill 目录。
 
 ## 默认风格速查
 
