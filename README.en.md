@@ -27,6 +27,19 @@ This project turns those lessons into a **loadable Agent Skill** plus importable
 
 ---
 
+## Design stance
+
+The visual style of this project is the author's personal preference, not an official journal template. Authors, journals, and reviewers have different visual traditions. Some common submission figures devote more attention to decoration, saturation, or stacked text than to the data itself, which can make the science harder to read. This project chooses a more restrained, information-dense approach without judging other authors; the target journal's latest guidelines always take precedence.
+
+- **cmocean only**: no jet/rainbow maps; choose sequential, diverging, or cyclic maps according to the variable.
+- **Figure first, text restrained**: no overall figure title, only panel subtitles and `(a)`/`(b)` labels; share axes and labels whenever possible.
+- **A clear colorbar without taking over the map**: prefer an outer column, a strip below the figure, or an inset; segmented/composite colorbars are allowed when useful, with 4–7 ticks and honest `extend`.
+- **A consistent language for analysis figures**: CCA, wavelet, spectral, and EMD figures use the same author style. These choices have been used in the author's own submissions and revisions and have been examined through journal editing and peer review; a question-driven ocean/atmosphere statistics tutorial is planned.
+
+Read the full [design stance](docs/style-philosophy.en.md). It is a repeatable, checkable personal workflow, not a claim to the only valid aesthetic.
+
+---
+
 ## Examples
 
 3 × 2 regional maps (synthetic data, layout/colormap demo only):
@@ -107,6 +120,8 @@ conda activate oceanography-plotting-style
 
 ## Quick start
 
+The example below uses the `.[full]` dependencies (Cartopy, cmocean, xarray).
+
 ```python
 from pathlib import Path
 
@@ -115,6 +130,7 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import cartopy.crs as ccrs
 
+from ocean_data import grid_arrays, load_for_plot
 from ocean_plot import (
     add_map_features, add_panel_label, auto_tick_step, check_figure,
     get_cmap, save_figure, set_degree_ticks, set_ocean_style, validate_grid,
@@ -122,14 +138,20 @@ from ocean_plot import (
 from ocean_journal import get_journal, apply_journal_style
 
 journal = get_journal("agu")
-apply_journal_style(journal.key)
 set_ocean_style(base_size=journal.body_pt)
+apply_journal_style(journal.key)   # order matters: journal line widths win
 
 lon_min, lon_max = 112.0, 132.0
 lat_min, lat_max = 17.0, 32.5
 fig_width = journal.width_in("double")
 
-# lon, lat, ssh = ...  # your data
+# Replace with your file; the map explicitly uses the first frame
+da = load_for_plot(
+    "data/ssh.nc", "ssh",
+    region={"lon": (lon_min, lon_max), "lat": (lat_min, lat_max)},
+)
+frame = da.isel(time=0) if "time" in da.dims else da
+lon, lat, ssh = grid_arrays(frame)
 validate_grid(lon, lat, ssh)
 
 fig, ax = plt.subplots(
@@ -154,15 +176,18 @@ set_degree_ticks(ax, [lon_min, lon_max, lat_min, lat_max],
 ax.set_aspect("equal")
 add_panel_label(ax, "(a)")
 
-cbar = fig.colorbar(mesh, ax=ax, extend="max")
+cbar = fig.colorbar(mesh, ax=ax, extend="neither")
 cbar.set_label("SSH amplitude (m)")
 
 for issue in check_figure(fig, check_bounds=True):
     print("layout warning:", issue)
-save_figure(fig, Path("figures/Fig_01.png"), dpi=300, also_pdf=True)
+save_figure(
+    fig, Path("figures/Fig_01.png"), dpi=journal.dpi,
+    also_pdf=True, tight=False,
+)
 ```
 
-> See `templates/map_panel_grid.py` for the complete, runnable version. The snippet above omits data loading and the `main()` wrapper.
+> The snippet assumes `data/ssh.nc` and explicitly takes the first frame; replace both with your own file and time selection. See `templates/map_panel_grid.py` for the template version.
 
 ---
 
@@ -191,8 +216,10 @@ da = pick_var(ds, "ssh")
 lon, lat, data = grid_arrays(da)
 ```
 
-- Supports 1-D regular and 2-D curvilinear longitude/latitude.
-- Dateline-crossing and negative-longitude boxes return monotonic unwrapped 0–360° coordinates (possibly > 360). Use `central_longitude=180` or an equivalent projection.
+- Supports 1-D regular and 2-D curvilinear longitude/latitude; `grid_arrays()` does not require coordinate names to equal dimension names.
+- 1-D dateline-crossing and negative-longitude boxes return monotonic unwrapped 0–360° coordinates (possibly > 360). Use `central_longitude=180` or an equivalent projection.
+- 2-D curvilinear coordinates are masked in place and keep their native longitudes; they are never unwrapped or sorted.
+- Full-globe boxes `(-180, 180)` / `(0, 360)` do not drop longitudes.
 - `load_for_plot()` preserves the time dimension unless you explicitly select a time; it never silently takes `time=0`.
 
 ---
@@ -236,7 +263,7 @@ print(report["warnings"])
 | `elsevier` | Elsevier | 90 mm | 190 mm | 8 pt |
 | `nature` | Nature portfolio | 89 mm | 183 mm | 6 pt |
 
-These are practical defaults, not official journal templates. Check the latest author guidelines before submission.
+These are practical defaults from the author's workflow, not official journal templates. Requirements change across journals and years (Nature's 6 pt is one example); check the latest author guidelines before submission.
 
 ```python
 from ocean_journal import get_journal, figure_size, apply_journal_style
@@ -255,8 +282,9 @@ apply_journal_style("ams")
 ├── SKILL.md                  # Agent Skill entry point
 ├── README.md                 # Chinese introduction
 ├── README.en.md              # English introduction
+├── CHANGELOG.md
 ├── references/
-│   ├── style-reference.md    # Typography, layout, maps, colormaps
+│   ├── style-reference.md    # Typography, layout, maps, colormaps, acceptance
 │   ├── data-prep.md          # xarray, regions, longitude, filtering
 │   └── figure-recipes.md     # Hovmöller, sections, FFT, quiver
 ├── scripts/
@@ -269,8 +297,13 @@ apply_journal_style("ams")
 │   ├── map_panel_grid.py
 │   └── mixed_panel_grid.py
 ├── tests/
-├── docs/assets/
-└── .github/workflows/ci.yml
+├── docs/
+│   ├── style-philosophy.en.md
+│   ├── style-philosophy.md
+│   └── assets/
+└── .github/workflows/
+    ├── ci.yml
+    └── release.yml
 ```
 
 ---
@@ -279,18 +312,18 @@ apply_journal_style("ams")
 
 ```bash
 python scripts/ocean_plot.py --self-test
-pytest -q
+python -m pytest -q
 ```
 
 Rendered and verified locally with:
 
-- Python 3.13
+- Python 3.13.9 (Anaconda base)
 - Matplotlib 3.10.6
 - Cartopy 0.25.0
 - cmocean 3.0.3
-- xarray / scipy / pandas (Anaconda environment)
+- xarray 2025.10.1 / scipy 1.16.3 / pandas 2.3.3
 
-CI installs Cartopy on Ubuntu with Python 3.10/3.12, runs the tests, and renders both templates.
+CI installs Cartopy on Ubuntu with Python 3.10/3.12/3.13, runs the tests, self-test, both templates, and wheel/sdist checks.
 
 ---
 
@@ -299,10 +332,13 @@ CI installs Cartopy on Ubuntu with Python 3.10/3.12, runs the tests, and renders
 - Focused on regular 1-D and curvilinear 2-D longitude/latitude grids. It does **not** automatically convert ROMS staggered grids, unstructured triangular meshes, or projected coordinates in metres/kilometres.
 - Journal widths and font sizes are practical defaults, not a substitute for current author guidelines.
 - `auto_tick_step()` is still a heuristic; `check_figure()` catches actual tick overlap, but this is not pixel-level image regression.
+- `set_degree_ticks()` supports rectangular projections only (PlateCarree, Mercator, and similar); use `gridlines(draw_labels=True)` for LCC/Robinson-style maps.
 - CVD matrices are approximations; use a dedicated tool for final accessibility review.
 - The AR(1) threshold assumes a single red-noise null hypothesis; complex spectral peaks need problem-specific tests.
 - Natural Earth data are downloaded on first use; cache them for offline work.
 - All template data are synthetic and must be replaced; `--demo` is a safety switch.
+- `pip install` provides the Python modules; `SKILL.md`, `references/`, and `templates/` are distributed through the repository/skill directory and are not included in the wheel.
+- `tight=True` changes the final physical size. Use `tight=False` for journal delivery and run the canvas check before saving.
 
 ---
 
@@ -315,13 +351,13 @@ Issues and pull requests are welcome, especially:
 - end-to-end examples with public real data;
 - visual-regression baselines.
 
-Please make sure `pytest -q` passes and include the rendered PNG with visual changes.
+Please make sure `python -m pytest -q` passes and include the rendered PNG with visual changes.
 
 ---
 
 ## License
 
-MIT. See [LICENSE](LICENSE).
+MIT. See [LICENSE](LICENSE). Version history: [CHANGELOG.md](CHANGELOG.md).
 
 ## Citation
 

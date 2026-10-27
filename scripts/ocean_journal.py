@@ -1,12 +1,14 @@
 """Journal-specific figure widths and font-size presets.
 
-The numbers are practical defaults, not a substitute for the current author
-guidelines.  Widths are in millimetres; font sizes are in points at final
-printed size.
+The numbers are practical, empirical defaults, not official journal templates
+or a substitute for the current author guidelines.  Widths are in millimetres;
+font sizes are in points at final printed size.  Verify the latest guidelines
+before submission, especially for Nature portfolio titles.
 """
 
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass
 
 import matplotlib as mpl
@@ -16,6 +18,13 @@ MM_PER_INCH = 25.4
 
 @dataclass(frozen=True)
 class JournalStyle:
+    """One empirical journal preset.
+
+    All widths/heights are millimetres and all font sizes are points at final
+    print size.  These values are approximate and intentionally easy to edit;
+    they are not a claim about a journal's official specifications.
+    """
+
     key: str
     name: str
     single_mm: float
@@ -30,11 +39,11 @@ class JournalStyle:
 
     def width_mm(self, columns: str | float = "double") -> float:
         key = str(columns).lower().strip()
-        if key in {"1", "single", "1col", "one"}:
+        if key in {"1", "1.0", "single", "1col", "one"}:
             return self.single_mm
-        if key in {"1.5", "one-half", "1.5col", "1.5 column"}:
+        if key in {"1.5", "1.50", "one-half", "1.5col", "1.5 column"}:
             return self.one_half_mm
-        if key in {"2", "double", "2col", "two"}:
+        if key in {"2", "2.0", "double", "2col", "two"}:
             return self.double_mm
         raise ValueError(f"columns must be single, 1.5, or double; got {columns!r}")
 
@@ -47,7 +56,7 @@ JOURNALS: dict[str, JournalStyle] = {
         "generic", "Generic manuscript", 89, 140, 183, 240, 8, 8, 9, 0.8,
     ),
     "agu": JournalStyle(
-        "agu", "AGU (JGR / GRL / Oceanography)",
+        "agu", "AGU (JGR / GRL)",
         89, 140, 180, 240, 8, 8, 9, 0.8,
     ),
     "ams": JournalStyle(
@@ -97,13 +106,24 @@ def figure_size(
     """Return ``(width_in, height_in)`` capped by the journal maximum height."""
     style = get_journal(name)
     width_mm = style.width_mm(columns)
-    height_mm = width_mm / max(float(aspect), 0.1) if height_mm is None else float(height_mm)
+    if height_mm is None:
+        if not math.isfinite(aspect) or aspect <= 0:
+            raise ValueError(f"aspect must be positive and finite, got {aspect!r}")
+        height_mm = width_mm / float(aspect)
+    else:
+        height_mm = float(height_mm)
+        if not math.isfinite(height_mm) or height_mm <= 0:
+            raise ValueError(f"height_mm must be positive and finite, got {height_mm!r}")
     height_mm = min(height_mm, style.max_height_mm)
     return width_mm / MM_PER_INCH, height_mm / MM_PER_INCH
 
 
 def apply_journal_style(name: str = "generic") -> JournalStyle:
-    """Set base font/line sizes for a journal, leaving figure layout to the caller."""
+    """Set base font/line sizes for a journal, leaving figure layout to the caller.
+
+    If ``set_ocean_style`` is also used, call that first and this function
+    second so the journal line widths and title sizes win.
+    """
     style = get_journal(name)
     mpl.rcParams.update({
         "font.size": style.body_pt,

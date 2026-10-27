@@ -82,10 +82,16 @@ def canonicalize_dims(ds):
 def subset_region(ds, lon_bounds, lat_bounds):
     """Subset a dataset to a lon/lat box.
 
-    Dateline-crossing and negative-longitude boxes are returned with unwrapped
-    0..360 longitudes (possibly >360) so the result stays monotonic.  For such a
-    map use ``ccrs.PlateCarree(central_longitude=180)`` or an equivalent
-    projection, and document the convention.
+    1D dateline-crossing and negative-longitude boxes are returned with
+    unwrapped 0..360 longitudes (possibly >360) so the result stays monotonic.
+    Full-globe boxes are not longitude-subset; with 1D coordinates they are
+    normalized to 0..360 when the bounds use negative or >180 longitudes.
+    2D curvilinear coordinates are masked in place and are never unwrapped or
+    sorted; for dateline-crossing 2D data keep the native coordinates and use
+    the matching projection.
+
+    For unwrapped 0..360 output use ``ccrs.PlateCarree(central_longitude=180)``
+    or an equivalent projection, and document the convention.
     """
     xr = _xarray()
     if "lon" not in ds.coords or "lat" not in ds.coords:
@@ -93,11 +99,23 @@ def subset_region(ds, lon_bounds, lat_bounds):
 
     lon_lo, lon_hi = map(float, lon_bounds)
     lat_lo, lat_hi = map(float, lat_bounds)
+    if lat_lo > lat_hi:
+        raise ValueError(f"lat_bounds must be ascending, got {(lat_lo, lat_hi)!r}")
     lon = ds["lon"]
     lat = ds["lat"]
 
+    full_globe = abs(lon_hi - lon_lo) >= 360.0 - 1e-9
+    needs_wrap = lon_lo > lon_hi or lon_lo < 0 or lon_hi > 180
+
     if lon.ndim == 1 and lat.ndim == 1:
-        if lon_lo > lon_hi or lon_lo < 0 or lon_hi > 180:
+        if full_globe:
+            if needs_wrap:
+                ds = ds.assign_coords(lon=to_0_360(ds["lon"]))
+            ds = ds.sortby("lon").sortby("lat")
+            ds = ds.sel(lat=slice(lat_lo, lat_hi))
+            return _check_nonempty(ds, lon_bounds, lat_bounds, lon, lat)
+
+        if needs_wrap:
             ds = ds.assign_coords(lon=to_0_360(ds["lon"])).sortby("lon")
             lo, hi = lon_lo % 360, lon_hi % 360
             if lo <= hi:
@@ -119,13 +137,15 @@ def subset_region(ds, lon_bounds, lat_bounds):
     if lon.ndim == 2 and lat.ndim == 2:
         if lon.shape != lat.shape:
             raise ValueError(f"2D lon/lat shape mismatch: {lon.shape} vs {lat.shape}")
-        lon_use = to_0_360(lon) if (lon_lo > lon_hi or lon_lo < 0 or lon_hi > 180) else lon
-        lo, hi = lon_lo % 360, lon_hi % 360
-        if lo <= hi:
-            lon_mask = (lon_use >= lo) & (lon_use <= hi)
-        else:
-            lon_mask = (lon_use >= lo) | (lon_use <= hi)
-        mask = lon_mask & (lat >= lat_lo) & (lat <= lat_hi)
+        mask = (lat >= lat_lo) & (lat <= lat_hi)
+        if not full_globe:
+            lon_use = to_0_360(lon) if needs_wrap else lon
+            lo, hi = lon_lo % 360, lon_hi % 360
+            if lo <= hi:
+                lon_mask = (lon_use >= lo) & (lon_use <= hi)
+            else:
+                lon_mask = (lon_use >= lo) | (lon_use <= hi)
+            mask = mask & lon_mask
         ds = ds.where(mask, drop=True)
         return _check_nonempty(ds, lon_bounds, lat_bounds, lon, lat)
 
@@ -171,12 +191,30 @@ def load_for_plot(path, var: str, region=None, time_sel=None):
     return da
 
 
-def grid_arrays(da, lon_name: str = "lon", lat_name: str = "lat"):
-    """Return ``(lon, lat, data)`` after putting lat/lon last and validating."""
+def grid_arrays(
+    da, lon_name: str = "lon", lat_name: str = "lat",
+) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """Return ``(lon, lat, data)`` with the spatial dimensions last.
+
+    Coordinate names and dimension names need not match: 1D ``lat(y)`` /
+    ``lon(x)`` and 2D ``lat(y, x)`` / ``lon(y, x)`` are both supported.  The
+    returned arrays are ready for ``validate_grid`` and ``pcolormesh``.
+    """
     if lon_name not in da.coords or lat_name not in da.coords:
         raise KeyError(f"DataArray must have {lon_name!r} and {lat_name!r} coordinates")
-    extra = [d for d in da.dims if d not in (lat_name, lon_name)]
-    da = da.transpose(*extra, lat_name, lon_name)
+    lon_da = da[lon_name]
+    lat_da = da[lat_name]
+    if not lon_da.dims or not lat_da.dims:
+        raise ValueError("lon/lat must be dimension coordinates, not scalars")
+
+    spatial_dims = tuple(dict.fromkeys((*lat_da.dims, *lon_da.dims)))
+    missing = [dim for dim in spatial_dims if dim not in da.dims]
+    if missing:
+        raise ValueError(
+            f"lon/lat dimensions {missing!r} are not dimensions of the data {da.dims!r}"
+        )
+    extra = [d for d in da.dims if d not in spatial_dims]
+    da = da.transpose(*extra, *spatial_dims)
     lon = np.asarray(da[lon_name].values)
     lat = np.asarray(da[lat_name].values)
     data = np.asarray(da.values)

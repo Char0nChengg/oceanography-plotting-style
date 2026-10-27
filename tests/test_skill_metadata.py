@@ -5,6 +5,8 @@ from pathlib import Path
 
 import pytest
 
+import ocean_plot
+
 yaml = pytest.importorskip("yaml")
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -25,6 +27,11 @@ def test_required_skill_files():
         "SKILL.md",
         "README.md",
         "README.en.md",
+        "CHANGELOG.md",
+        "docs/style-philosophy.md",
+        "docs/style-philosophy.en.md",
+        ".github/workflows/ci.yml",
+        ".github/workflows/release.yml",
         "references/style-reference.md",
         "references/data-prep.md",
         "references/figure-recipes.md",
@@ -44,3 +51,38 @@ def test_templates_require_demo_flag():
     for name in ("map_panel_grid.py", "mixed_panel_grid.py"):
         text = (ROOT / "templates" / name).read_text(encoding="utf-8")
         assert '"--demo"' in text
+
+
+def test_version_is_consistent():
+    pyproject = (ROOT / "pyproject.toml").read_text(encoding="utf-8")
+    match = re.search(r'^version = "([^"]+)"', pyproject, re.M)
+    assert match, "pyproject.toml must define a version"
+    version = match.group(1)
+    assert version == ocean_plot.__version__
+    changelog = (ROOT / "CHANGELOG.md").read_text(encoding="utf-8")
+    assert f"## [{version}]" in changelog
+
+
+def test_relative_links_exist():
+    documents = [
+        ROOT / "README.md",
+        ROOT / "README.en.md",
+        ROOT / "SKILL.md",
+        ROOT / "docs/style-philosophy.md",
+        ROOT / "docs/style-philosophy.en.md",
+        *sorted((ROOT / "references").glob("*.md")),
+    ]
+    for document in documents:
+        text = document.read_text(encoding="utf-8")
+        for target in re.findall(r"!?\[[^\]]*\]\(([^)]+)\)", text):
+            if target.startswith(("http://", "https://", "#", "mailto:")):
+                continue
+            relative = target.split("#", 1)[0]
+            assert (document.parent / relative).exists(), (
+                f"{document.name}: missing {target}"
+            )
+
+
+def test_design_stance_is_linked_from_both_readmes():
+    assert "设计立场" in (ROOT / "README.md").read_text(encoding="utf-8")
+    assert "Design stance" in (ROOT / "README.en.md").read_text(encoding="utf-8")

@@ -14,6 +14,12 @@ from __future__ import annotations
 import sys
 from pathlib import Path
 
+if __name__ == "__main__" and "--demo" not in sys.argv:
+    raise SystemExit(
+        "This is a synthetic demo template. Pass --demo to render it; "
+        "replace the synthetic fields before using it for a paper."
+    )
+
 import numpy as np
 import matplotlib
 matplotlib.use("Agg")
@@ -24,7 +30,6 @@ sys.path.insert(0, str(SKILL_DIR / "scripts"))
 
 try:
     import cartopy.crs as ccrs
-    import cmocean as cmo
 except ModuleNotFoundError as exc:  # pragma: no cover - environment guard
     raise SystemExit(
         "This template needs cartopy and cmocean. "
@@ -68,7 +73,7 @@ def main() -> None:
     # ========== 色标 ==========
     cmap_name = "cmo.dense"
     vmin, vmax = 0.0, 0.30
-    cbar_extend = "max"          # data are clipped at vmax
+    cbar_extend = "neither"      # synthetic data stay inside [vmin, vmax]
     cbar_label = "SSH amplitude (m)"
 
     # ========== 版面 ==========
@@ -86,6 +91,7 @@ def main() -> None:
 
     set_ocean_style(base_size=style.body_pt)
     apply_journal_style(journal_name)
+    cmap = get_cmap(cmap_name)
 
     # ---- synthetic data: replace with real fields ----
     lon = np.arange(lon_min, lon_max + 0.01, 0.1)
@@ -95,6 +101,11 @@ def main() -> None:
         validate_grid(lon, lat, field, name="synthetic_ssh")
 
     projection = ccrs.PlateCarree()
+    lon_step, lat_step = auto_tick_step(
+        lon_min, lon_max, lat_min, lat_max,
+        figsize=(fig_width, fig_height), ncols=2, nrows=3,
+        fontsize=font_tick,
+    )
     fig = plt.figure(figsize=(fig_width, fig_height))
     gs = fig.add_gridspec(
         3, 3, width_ratios=[1, 1, 0.035],
@@ -107,24 +118,20 @@ def main() -> None:
     cax = fig.add_subplot(gs[:, 2])
     fig.subplots_adjust(left=0.07, right=0.90, top=0.93, bottom=0.11)
 
+    assert len(axes) == len(months) == len(panel_labels) == len(fields) == 6
     pcm = None
     for idx, (ax, month, label, field) in enumerate(
         zip(axes, months, panel_labels, fields)
     ):
         pcm = ax.pcolormesh(
             lon, lat, field,
-            cmap=get_cmap(cmap_name), vmin=vmin, vmax=vmax,
+            cmap=cmap, vmin=vmin, vmax=vmax,
             shading="auto", transform=projection, rasterized=True,
         )
         ax.set_extent([lon_min, lon_max, lat_min, lat_max], crs=projection)
         add_map_features(ax, scale=map_scale)
         ax.set_aspect(map_aspect)
 
-        lon_step, lat_step = auto_tick_step(
-            lon_min, lon_max, lat_min, lat_max,
-            figsize=(fig_width, fig_height), ncols=2, nrows=3,
-            fontsize=font_tick,
-        )
         set_degree_ticks(
             ax, [lon_min, lon_max, lat_min, lat_max],
             lon_step=lon_step, lat_step=lat_step, fontsize=font_tick,
@@ -145,14 +152,11 @@ def main() -> None:
 
     for issue in check_figure(fig, check_bounds=True):
         print("layout warning:", issue)
-    written = save_figure(fig, output_png, dpi=save_dpi, also_pdf=True)
+    written = save_figure(
+        fig, output_png, dpi=save_dpi, also_pdf=True, tight=False,
+    )
     print("saved:", ", ".join(str(p) for p in written))
 
 
 if __name__ == "__main__":
-    if "--demo" not in sys.argv:
-        raise SystemExit(
-            "This is a synthetic demo template. Pass --demo to render it; "
-            "replace the synthetic fields before using it for a paper."
-        )
     main()

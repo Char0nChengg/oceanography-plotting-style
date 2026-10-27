@@ -1,8 +1,9 @@
 """Approximate grayscale and colour-vision-deficiency (CVD) checks.
 
 These are screening checks, not a replacement for a dedicated accessibility
-review.  CVD matrices are the commonly used Viénot–Brettel approximations in
-linear sRGB.
+review.  The CVD matrices below are commonly used dichromacy approximations
+applied in linear sRGB; they are not a clinical simulation and should not be
+cited as one.
 """
 
 from __future__ import annotations
@@ -41,14 +42,18 @@ def _linear_to_srgb(rgb: np.ndarray) -> np.ndarray:
 
 
 def _sample(cmap, n: int) -> np.ndarray:
+    n = int(n)
+    if n < 2:
+        raise ValueError("n must be >= 2")
     cmap = get_cmap(cmap)
-    return np.asarray(cmap(np.linspace(0.0, 1.0, int(n))), dtype=float)[:, :3]
+    return np.asarray(cmap(np.linspace(0.0, 1.0, n)), dtype=float)[:, :3]
 
 
 def simulate_cvd(cmap, kind: str = "deuteranopia", n: int = 256) -> np.ndarray:
-    """Return approximate sRGB colours as seen with a dichromatic deficiency.
+    """Approximate the sRGB colours a dichromat may perceive.
 
-    Supported kinds: ``deuteranopia``, ``protanopia``, ``tritanopia``.
+    This is a screening approximation, not a clinical model.  Supported kinds:
+    ``deuteranopia``, ``protanopia``, ``tritanopia``.
     """
     key = str(kind).lower().strip()
     if key not in _CVD_MATRICES:
@@ -77,12 +82,18 @@ def accessibility_report(
     """Screen a colormap for grayscale separation and approximate CVD issues.
 
     Separation is measured over ``levels`` representative colour bins rather
-    than 256 adjacent samples, because adjacent 8-bit colours are legitimately
-    almost identical.  The returned ``warnings`` list is meant to trigger a
-    manual look at the rendered figure, not to certify accessibility.
+    than adjacent samples, because adjacent 8-bit colours are legitimately
+    almost identical.  ``min_gray_step`` and ``min_cvd_distance`` are heuristic
+    thresholds: a warning asks for a manual look at the rendered figure, not a
+    judgement that the figure is inaccessible, and no warning is a certificate.
     """
-    levels = max(int(levels), 2)
-    idx = np.linspace(0, int(n) - 1, levels).astype(int)
+    n = int(n)
+    levels = int(levels)
+    if n < 2:
+        raise ValueError("n must be >= 2")
+    if levels < 2 or levels > n:
+        raise ValueError("levels must be in [2, n]")
+    idx = np.linspace(0, n - 1, levels).astype(int)
     gray = grayscale_luminance(cmap, n)
     gray_steps = np.abs(np.diff(gray[idx]))
     cvd = {}
@@ -97,7 +108,7 @@ def accessibility_report(
         }
         if cvd[kind]["min_step"] < min_cvd_distance:
             problems.append(
-                f"{kind}: adjacent colours are very close "
+                f"{kind}: adjacent colours may be difficult to distinguish "
                 f"(min ΔRGB={cvd[kind]['min_step']:.4f})"
             )
 
@@ -110,7 +121,7 @@ def accessibility_report(
     }
     if report["grayscale_min_step"] < min_gray_step:
         report["warnings"].append(
-            "grayscale: adjacent colours are nearly indistinguishable "
+            "grayscale: adjacent colours may be difficult to distinguish "
             f"(min ΔL={report['grayscale_min_step']:.4f})"
         )
     return report

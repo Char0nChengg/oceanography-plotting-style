@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import matplotlib.dates as mdates
 import matplotlib.pyplot as plt
 import numpy as np
 import pytest
@@ -92,6 +93,32 @@ def test_check_figure_clean():
     assert op.check_figure(fig) == []
 
 
+def test_set_degree_ticks_uses_platecarree_for_mercator():
+    ccrs = pytest.importorskip("cartopy.crs")
+    fig, ax = plt.subplots(subplot_kw={"projection": ccrs.Mercator()})
+    ax.set_extent([112, 132, 17, 32.5], crs=ccrs.PlateCarree())
+    op.set_degree_ticks(ax, [112, 132, 17, 32.5], lon_step=4, lat_step=4)
+    fig.canvas.draw()
+    labels = [label.get_text() for label in ax.get_xticklabels()]
+    assert labels[0] == "112°E"
+    assert labels[-1] == "132°E"
+    assert len(set(labels)) == len(labels)
+    plt.close(fig)
+
+
+def test_set_degree_ticks_rejects_non_rectangular_projection():
+    ccrs = pytest.importorskip("cartopy.crs")
+    fig, ax = plt.subplots(
+        subplot_kw={"projection": ccrs.LambertConformal(
+            central_longitude=120, central_latitude=25,
+        )},
+    )
+    ax.set_extent([112, 132, 17, 32.5], crs=ccrs.PlateCarree())
+    with pytest.raises(NotImplementedError, match="rectangular"):
+        op.set_degree_ticks(ax, [112, 132, 17, 32.5], lon_step=4, lat_step=4)
+    plt.close(fig)
+
+
 def test_auto_time_axis_spans():
     fig, ax = plt.subplots()
     yearly = np.arange("2018-01-01", "2022-01-01", dtype="datetime64[D]")
@@ -115,3 +142,60 @@ def test_save_figure(tmp_path):
     assert out.exists() and out.stat().st_size > 0
     assert out.with_suffix(".pdf").exists()
     assert len(written) == 2
+
+
+def test_save_figure_preserves_figsize_when_tight_off(tmp_path):
+    fig, ax = plt.subplots(figsize=(3.2, 2.4))
+    ax.plot([0, 1], [0, 1])
+    out = tmp_path / "exact.png"
+    op.save_figure(fig, out, dpi=300, tight=False)
+    pixels = plt.imread(out)
+    assert pixels.shape[1] == 960
+    assert pixels.shape[0] == 720
+
+
+def test_save_figure_check_bounds_warns_when_tight_off(tmp_path):
+    fig, ax = plt.subplots(figsize=(3, 2))
+    ax.plot([0, 1], [0, 1])
+    fig.text(1.3, 0.5, "outside")
+    with pytest.warns(RuntimeWarning, match="outside"):
+        op.save_figure(fig, tmp_path / "clipped.png", dpi=300, tight=False, check=True)
+
+
+def test_auto_time_axis_resets_numeric_formatter():
+    fig, ax = plt.subplots()
+    ax.xaxis.set_major_formatter(mdates.DateFormatter("%Y"))
+    op.auto_time_axis(ax, np.arange(4.0))
+    assert not isinstance(ax.xaxis.get_major_formatter(), mdates.DateFormatter)
+    plt.close(fig)
+
+
+def test_auto_time_axis_sixty_days_uses_day_locator():
+    fig, ax = plt.subplots()
+    dates = np.arange("2020-01-01", "2020-03-01", dtype="datetime64[D]")
+    locator, _ = op.auto_time_axis(ax, dates)
+    assert isinstance(locator, mdates.DayLocator)
+    plt.close(fig)
+
+
+def test_auto_time_axis_rejects_timedelta():
+    fig, ax = plt.subplots()
+    with pytest.raises(TypeError, match="timedelta"):
+        op.auto_time_axis(ax, np.array([0, 1, 2], dtype="timedelta64[D]"))
+    plt.close(fig)
+
+
+def test_colorbar_ticks_caps_symmetric_count():
+    ticks = op.colorbar_ticks(-1, 1, n=9, symmetric=True)
+    assert 4 <= ticks.size <= 7
+
+
+def test_robust_limits_include_zero_does_not_invent_negative_range():
+    lo, hi = op.robust_limits([1, 2, 3], include_zero=True)
+    assert lo == 0.0
+    assert hi > 3.0
+
+
+def test_keep_largest_region_rejects_unknown_connectivity():
+    with pytest.raises(ValueError, match="connectivity"):
+        op.keep_largest_region(np.ones((3, 3)), connectivity=3)

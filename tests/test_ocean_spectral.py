@@ -22,6 +22,10 @@ def test_ar1_threshold_is_finite_and_shape():
     assert result["threshold"].shape == result["amplitude"].shape
     assert np.isfinite(result["threshold"]).all()
     assert -1 < result["rho"] < 1
+    assert result["n_sim"] == 50
+    assert result["seed"] == 1
+    assert result["window"] == "hann"
+    assert result["detrend"] == "linear"
 
 
 def test_fft_requires_finite_uniform_input():
@@ -29,3 +33,17 @@ def test_fft_requires_finite_uniform_input():
         sp.fft_amplitude(np.arange(5))
     with pytest.raises(ValueError):
         sp.fft_amplitude(np.r_[np.arange(10), np.nan])
+
+
+def test_dominant_period_rejects_invalid_inputs():
+    with pytest.raises(ValueError, match="same-shape"):
+        sp.dominant_period([0, 0.1, 0.2], [1, 2])
+    with pytest.raises(ValueError, match="finite"):
+        sp.dominant_period([0, 0.1, 0.2], [1, np.nan, 2])
+    with pytest.raises(ValueError, match="fmin"):
+        sp.dominant_period([0, 0.1, 0.2], [1, 2, 3], fmin=-0.1)
+
+
+def test_ar1_threshold_requires_integer_n_sim():
+    with pytest.raises(TypeError, match="n_sim"):
+        sp.ar1_threshold(np.arange(20.0), n_sim=10.5)

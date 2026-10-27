@@ -1,6 +1,8 @@
 # 风格参考：字体、版面、地图、色标
 
-本文件是 `SKILL.md` 的详细展开。规则默认服务论文印刷版；如果目标平台是网页/幻灯片，可以放大字号，但比例关系仍适用。
+本文件是 [SKILL.md](../SKILL.md) 的详细展开，并与 [data-prep](data-prep.md)、[figure-recipes](figure-recipes.md) 分工：这里只讲**风格与版面规则**，完整图型配方放在 figure-recipes。规则默认服务论文印刷版；网页/幻灯片可以放大字号，但比例关系仍适用。
+
+> 本文的代码片段是风格示例，默认位于已读取数据、已有 `fig`/`ax` 的 `main()` 中；完整可运行版本见 [templates](../templates/)。项目风格是作者的个人偏好，不是期刊官方规范。
 
 ## 1. 先定最终物理尺寸
 
@@ -10,13 +12,14 @@
 |---|---|---|---|
 | 单栏小图 | 3.3–3.5 in | 3.5 × 2.6 | 7–8 pt |
 | 1.5 栏 | 5.0–5.5 in | 5.2 × 4.0 | 8–9 pt |
-| 双栏整幅 | 7.0–7.2 in | 7.2 × 5.0 | 8–10 pt |
-| 双栏整页多面板 | 7.0–7.2 in | 7.2 × 8.0–9.2 | 8–9 pt |
+| 双栏整幅 | 7.0–7.5 in | 7.0–7.5 × 5.0 | 6–10 pt |
+| 双栏整页多面板 | 7.0–7.5 in | 7.0–7.5 × 8.0–9.2 | 7–9 pt |
 | 单张大地图 | 6.5–7.2 in | 7.0 × 5.2 | 8–10 pt |
 
 - `figsize` 是**成品尺寸**，不要再让 LaTeX 把图缩到 50%。
 - 多面板图的高度由每行地图的经纬比决定；用 `ax.set_aspect("equal")` 后让布局引擎分配空间，不要用 `"auto"` 硬压。
 - 300 dpi 的 7.2 × 9.2 in 图约 6600 × 8300 px，已经足够；不要为了“更清楚”把 22 × 24 in × 300 dpi 当成默认。
+- 保存时用 `tight=False` 才能保持这个物理尺寸；`bbox_inches="tight"` 会改变成品宽度（见 §8）。
 
 ## 2. 字体与排版
 
@@ -27,7 +30,7 @@ mpl.rcParams.update({
     "font.family": "sans-serif",
     "font.sans-serif": ["Arial", "Liberation Sans", "DejaVu Sans"],
     "axes.unicode_minus": False,   # 负号用 ASCII hyphen，避免缺字方框
-    "pdf.fonttype": 42,            # PDF 内嵌 TrueType，投稿系统可编辑
+    "pdf.fonttype": 42,            # PDF 嵌入 TrueType，投稿系统可编辑
     "ps.fonttype": 42,
 })
 ```
@@ -43,12 +46,16 @@ mpl.rcParams.update({
 - 轴标签必须带单位：`Depth (m)`、`Longitude`、`SSH (m)`、`Velocity (m s$^{-1}$)`。
 - 图例不描边（`frameon=False`），放在不遮挡数据的位置；多线图用 `C0/C1/C2` 或 cmocean 的离散色。
 - 线宽：数据线 1.0–1.5 pt；海岸线 0.6–0.8 pt；坐标轴 0.8 pt；网格线 0.4 pt、透明度 0.4–0.6。
+- **不设整张图的 main title**。用子图 subtitle、面板字母和共享轴标签建立层级；主标题既占空间，也容易和 panel label 抢位置。
 
 ## 3. 布局
 
 ### 3.1 简单网格
 
 ```python
+import cartopy.crs as ccrs
+import matplotlib.pyplot as plt
+
 fig, axes = plt.subplots(
     3, 2, figsize=(7.2, 8.4),
     subplot_kw={"projection": ccrs.PlateCarree()},
@@ -62,10 +69,13 @@ axes = axes.ravel()
 ### 3.2 GridSpec 混合面板
 
 ```python
+import cartopy.crs as ccrs
+import matplotlib.pyplot as plt
+
 fig = plt.figure(figsize=(7.2, 5.2), layout="constrained")
 gs = fig.add_gridspec(
     2, 2, width_ratios=[1.25, 1.0], height_ratios=[1, 1],
-    hspace=0.08, wspace=0.08,
+    hspace=0.06, wspace=0.08,
 )
 ax_map = fig.add_subplot(gs[:, 0], projection=ccrs.PlateCarree())
 ax_ts = fig.add_subplot(gs[0, 1])
@@ -74,6 +84,7 @@ ax_prof = fig.add_subplot(gs[1, 1])
 
 - 不要用 `KSIZE * 4.0` 这类含义不明的魔法数；直接写 `hspace`/`wspace`，并在参数块里命名。
 - 共享轴时用 `sharex=True` / `sharey=True`，隐藏内侧标签用 `tick_params(labelleft=False)`，不要用 `set_yticklabels([])`（会触发 FixedFormatter 警告）。
+- 能共享的横纵标签就共享：最左列保留纬度，最底行保留经度；混合面板的剖面与时间序列尽量共享时间基准。
 
 ## 4. 地图（Cartopy）
 
@@ -81,26 +92,26 @@ ax_prof = fig.add_subplot(gs[1, 1])
 
 - 默认 `ccrs.PlateCarree()`，适合低中纬区域图。
 - 高纬、跨大范围经度或需要保角/等面积时，改用 `Mercator`、`LambertConformal`、`Robinson` 等；不要迷信“始终 PlateCarree”。
-- 跨日界线时，先统一经度到 `[-180, 180)`，或使用 `ccrs.PlateCarree(central_longitude=...)`，并检查 `set_extent` 是否把图拉成全球。
+- 跨日界线时，先统一到一种经度约定。项目 `subset_region()` 的 1D 负经度/跨日界线输出是展开的 0–360，使用 `ccrs.PlateCarree(central_longitude=180)` 或等价投影；2D 曲线坐标保留原生经度。检查 `set_extent` 是否把图拉成全球。
+- **Cartopy 的经纬度 formatter 只适用于矩形投影**。`set_degree_ticks()` 对 LCC/Robinson 等会明确抛 `NotImplementedError`；这些投影用 `gridlines(draw_labels=True)`。
 
 ### 4.2 地图要素
 
 ```python
 import cartopy.crs as ccrs
 import cartopy.feature as cfeature
-from cartopy.mpl.ticker import LongitudeFormatter, LatitudeFormatter
 
-ax.add_feature(cfeature.LAND.with_scale("10m"),
+ax.add_feature(cfeature.LAND.with_scale("50m"),
                facecolor="lightgray", edgecolor="none", zorder=2)
-ax.add_feature(cfeature.COASTLINE.with_scale("10m"),
+ax.add_feature(cfeature.COASTLINE.with_scale("50m"),
                linewidth=0.7, edgecolor="black", zorder=3)
 ax.set_extent([lon_min, lon_max, lat_min, lat_max], crs=ccrs.PlateCarree())
 ax.set_aspect("equal")
 ```
 
 - `10m` 最清晰，但首次运行会下载 Natural Earth 数据，离线环境会失败；多面板图/PDF 优先用 `50m`，单张大图再用 `10m`，并提前缓存。
-- 陆地放在数据之上、海岸线再之上；否则 pcolormesh 会盖住海岸线。
-- 经纬度刻度用 `LongitudeFormatter` / `LatitudeFormatter`，不要手写 `112°E` 字符串。
+- 陆地放在数据之上、海岸线再之上；否则 `pcolormesh` 会盖住海岸线。
+- 经纬度刻度用 `LongitudeFormatter` / `LatitudeFormatter`，不要手写 `112°E` 字符串；非矩形投影改用 gridline labels。
 - 刻度：`direction="in"`、四边、`length=3.5`、`width=0.8`；经度标签太密时减少刻度数，而不是把字体缩到 5 pt。
 - 需要网格线时：
   ```python
@@ -108,6 +119,16 @@ ax.set_aspect("equal")
                     alpha=0.45, linestyle=":")
   ```
   不要让网格线压过数据；标签已经由刻度 formatter 提供时，`draw_labels=False`。
+- 非矩形投影的标签示例：
+  ```python
+  gl = ax.gridlines(
+      crs=ccrs.PlateCarree(), draw_labels=True,
+      xlocs=[110, 120, 130], ylocs=[20, 30],
+      linewidth=0.4, color="gray", alpha=0.45, linestyle=":",
+  )
+  gl.top_labels = False
+  gl.right_labels = False
+  ```
 
 ### 4.3 自适应经纬度刻度
 
@@ -130,13 +151,15 @@ set_degree_ticks(ax, [lon_min, lon_max, lat_min, lat_max],
 
 | 数据特征 | 色标 | 范围 | `extend` |
 |---|---|---|---|
-| SSH 振幅、RMSE、速度幅值 | `cmo.cm.dense` / `speed` | `0..p99` | 数据被截断才 `"max"` |
-| SSH 距平、差值 | `cmo.cm.balance` | 对称 `±p99` | `"both"` |
-| 温度 | `cmo.cm.thermal` | 1–99% 分位 | 按截断情况 |
-| 盐度 | `cmo.cm.haline` | 1–99% 分位 | 按截断情况 |
-| 水深 | `cmo.cm.deep` | 0..max，`TwoSlopeNorm` | `"max"` |
-| 相位 | `cmo.cm.phase` | 0..360 | `"neither"` |
-| 相关系数 | `cmo.cm.balance` | −1..1 | `"neither"` |
+| SSH 振幅、RMSE、速度幅值 | `cmo.dense` / `cmo.speed` | `0..p99` | 数据被截断才 `"max"` |
+| SSH 距平、差值 | `cmo.balance` | 对称 `±p99` | 数据被截断才 `"both"` |
+| 温度 | `cmo.thermal` | 1–99% 分位 | 按截断情况 |
+| 盐度 | `cmo.haline` | 1–99% 分位 | 按截断情况 |
+| 水深 | `cmo.deep` | 0..max，`TwoSlopeNorm` | 数据被截断才 `"max"` |
+| 相位 | `cmo.phase` | 0..360 | `"neither"` |
+| 相关系数 | `cmo.balance` | −1..1 | `"neither"` |
+
+**API 写法**：`get_cmap("cmo.dense")` 接收字符串；`cmocean.cm.dense` 是已导入的对象。不要写成 `get_cmap("cmo.cm.dense")`，后者会抛 `ValueError`。
 
 **`extend` 的语义**：三角箭头表示“有数据落在色标范围外”。如果 `vmin/vmax` 已经覆盖全部有限值，就用 `"neither"`；不要因为变量是正的就必须 `"max"`。反过来，如果刻意用 99% 分位截断，应该加 `"max"`/`"both"` 并在图注说明。
 
@@ -146,12 +169,14 @@ set_degree_ticks(ax, [lon_min, lon_max, lat_min, lat_max],
 - 对称距平：`vmin=-vmax, vmax=+vmax`，`vcenter=0`，刻度包含 0。
 - 有界量：`vmin`/`vmax` 取数据边界；不要用 `TwoSlopeNorm` 的 `vcenter` 去硬拗一个没有物理意义的中心。
 - 同一变量、同一范围的多面板共用一条色标；不同变量不要共用。
+- `colorbar_ticks()` 会把数量限制在 4–7；自定义刻度也要遵守。
 
 ### 5.3 常用 norm
 
 ```python
-from matplotlib.colors import BoundaryNorm, LogNorm, TwoSlopeNorm
+import cartopy.crs as ccrs
 import cmocean as cmo
+from matplotlib.colors import BoundaryNorm, LogNorm, TwoSlopeNorm
 
 # 地形：突出 200 m 陆架坡折
 norm = TwoSlopeNorm(vmin=0, vcenter=200, vmax=5500)
@@ -174,19 +199,23 @@ cbar = fig.colorbar(pcm, ax=axes, orientation="vertical",
 cbar.set_label(cbar_label, fontsize=font_label, labelpad=8)
 cbar.ax.tick_params(labelsize=font_tick)
 
-# 单图
+# 单图：外置列或图下横条
 cbar = fig.colorbar(mesh, ax=ax, extend=cbar_extend)
 ```
 
-手动 `fig.add_axes([...])` 适合需要精确对齐的期刊图，但必须自己保证不压住面板；使用 `bbox_inches="tight"` 时先检查最终边界。
+手动 `fig.add_axes` 适合需要精确对齐的期刊图，但必须自己保证不压住面板。Colorbar 不占用主图空间：优先独立 `cax`/外置列、图下横条或 inset；多面板同变量只保留一条。
 
 ## 6. 常用图型
 
 ### 6.1 pcolormesh
 
 ```python
+import cartopy.crs as ccrs
+
+from ocean_plot import get_cmap
+
 mesh = ax.pcolormesh(
-    lon, lat, data, cmap=cmap, vmin=vmin, vmax=vmax,
+    lon, lat, data, cmap=get_cmap("cmo.dense"), vmin=vmin, vmax=vmax,
     shading="auto", transform=ccrs.PlateCarree(),
     rasterized=True,
 )
@@ -199,117 +228,27 @@ mesh = ax.pcolormesh(
 ### 6.2 contourf
 
 ```python
+import numpy as np
+import cartopy.crs as ccrs
+
+from ocean_plot import get_cmap
+
+if vmin == vmax:
+    raise ValueError("vmin and vmax must differ for contourf")
 levels = np.unique(np.linspace(vmin, vmax, 21))
-cf = ax.contourf(lon, lat, data, levels=levels, cmap=cmap,
+cf = ax.contourf(lon, lat, data, levels=levels, cmap=get_cmap("cmo.dense"),
                  extend=cbar_extend, transform=ccrs.PlateCarree())
 ```
 
 `levels` 必须严格递增且唯一；`cbar.set_ticks(levels)` 通常太密，改成 4–7 个代表值。
 
-### 6.3 Hovmöller
-
-```python
-levels = np.unique(np.linspace(-vmax, vmax, 26))
-cf = ax.contourf(time, distance, ssh.T, levels=levels,
-                 cmap=cmo.cm.balance, extend="both")
-ax.set_ylabel("Distance along section (km)")
-auto_time_axis(ax, time)
-```
-
-- 确认 `ssh` 的维度是 `(distance, time)` 还是 `(time, distance)`，转置错了图也能画，但物理含义全错。
-- 时间轴跨年时不要用 `%H:%M`；用 `auto_time_axis()` 或 `ConciseDateFormatter`。
-
-### 6.4 垂向剖面
-
-```python
-mesh = ax.pcolormesh(time, depth, temp.T, cmap=cmo.cm.thermal,
-                     vmin=vmin, vmax=vmax, shading="auto")
-ax.invert_yaxis()                  # 深度向下
-ax.set_ylabel("Depth (m)")
-```
-
-- `depth` 正向下时 `invert_yaxis()`；如果数据已经是负深度，不要再翻转。
-- 对数深度/地形用 `set_yscale("log")` 前先确保没有 0。
-
-### 6.5 时间序列 + 标准差
-
-```python
-ax.fill_between(dates, mean - std, mean + std,
-                color="C0", alpha=0.22, linewidth=0)
-ax.plot(dates, mean, color="C0", linewidth=1.3, label="Ensemble mean")
-ax.legend(frameon=False, loc="upper right", fontsize=8)
-```
-
-均值和标准差必须来自同一时间基准；`rolling(..., center=True)` 会引入两端 NaN，画图前决定是否 `dropna()`。
-
-### 6.6 散点
-
-```python
-ax.scatter(x, y, c=c, cmap=get_cmap("cmo.dense"),
-           s=4, edgecolors="none", vmin=vmin, vmax=vmax)
-```
-
-`cmap="cmo.dense"` 不是合法 Matplotlib 名称；用 `cmo.cm.dense` 或 `get_cmap("cmo.dense")`。
-
-### 6.7 FFT
-
-FFT 不是“画一条线”那么简单；必须说明预处理：
-
-```python
-x = np.asarray(x, dtype=float)
-x = x[np.isfinite(x)]
-x = x - x.mean()
-window = np.hanning(x.size)
-xw = x * window
-freq = np.fft.rfftfreq(x.size, d=dt)
-amp = 2.0 * np.abs(np.fft.rfft(xw)) / window.sum()
-```
-
-- 去趋势/去均值、窗函数、采样间隔 `dt` 会影响谱形；图注或方法里要写。
-- 显著性/置信线需要明确的零假设和检验方法；不要画一条没有定义的“confidence line”。
-- 频率轴常用对数；周期标注 `1/f`，但不要把 0 频率放进对数轴。
-
-### 6.8 Quiver
-
-```python
-mag = np.hypot(u, v)
-umax = np.nanpercentile(mag, 99)
-arrow_len_in = 0.55
-q = ax.quiver(
-    lon[::sx], lat[::sy], u[::sy, ::sx], v[::sy, ::sx],
-    transform=ccrs.PlateCarree(), scale_units="inches",
-    scale=umax / arrow_len_in, width=0.0022,
-    headwidth=3.5, headlength=4.5, pivot="middle",
-)
-ax.quiverkey(q, X=0.90, Y=1.02, U=umax,
-             label=f"{umax:.2g} m s$^{{-1}}$",
-             labelpos="E", coordinates="axes", fontproperties={"size": 8})
-```
-
-- `scale` 不是“乘上 vmax”就有物理意义；用 `scale_units="inches"` + 目标箭头长度，才能在多面板间保持一致。
-- `stride` 由目标箭头密度决定，不要对所有网格都写 3。目标每面板约 15–25 个箭头。
-- 力场/通量箭头要说明参考量；否则读者不知道箭头长度代表什么。
-
-### 6.9 LineCollection / 粒子轨迹
-
-```python
-from matplotlib.collections import LineCollection
-
-lc = LineCollection(segments, cmap=cmo.cm.thermal, norm=norm,
-                    linewidths=0.7, alpha=0.75)
-lc.set_array(values)
-lc.set_transform(ccrs.PlateCarree())
-ax.add_collection(lc)
-ax.autoscale_view()
-```
-
-`add_collection` 不会自动更新数据范围；需要 `autoscale_view()` 或手动 `set_xlim/set_ylim`。
+Hovmöller、垂向剖面、时间序列、散点、FFT、quiver、粒子轨迹等完整配方见 [figure-recipes](figure-recipes.md)，这里不重复维护第二份代码。
 
 ## 7. 坐标轴
 
 ### 7.1 时间轴
 
-优先用 `ocean_plot.auto_time_axis(ax, time_values)`；它按跨度选择年/月/日/小时 locator，并处理 numpy datetime64、`datetime`、pandas Timestamp 和常见 cftime 对象。
+优先用 `ocean_plot.auto_time_axis(ax, time_values)`；它按跨度选择年/月/日/小时 locator，并处理 numpy datetime64、`datetime`、pandas Timestamp 和常见 cftime 对象。非标准日历会警告并按 Gregorian 近似；需要日历精确时用 `nc_time_axis`。
 
 跨年图不要用 `%m-%d`；跨月图不要用单一 `%Y`。刻度标签旋转 30° 只作为最后手段，优先减少刻度数。
 
@@ -333,30 +272,74 @@ else:
 ax.ticklabel_format(axis="y", style="sci", scilimits=(0, 0))
 ```
 
-Cartopy 的 GeoAxes 不要用 `ticklabel_format`，用经纬度 formatter。
+Cartopy 的 GeoAxes 不要用 `ticklabel_format`，用经纬度 formatter 或 gridline labels。
 
 ## 8. 保存与导出
 
 ```python
-fig.savefig(output_png, dpi=300, bbox_inches="tight",
-            pad_inches=0.02, facecolor="white")
-fig.savefig(output_pdf, bbox_inches="tight",
-            pad_inches=0.02, facecolor="white")
+from ocean_plot import save_figure
+
+save_figure(
+    fig, output_png, dpi=300, also_pdf=True,
+    tight=False,             # 保持 figsize 的最终物理宽度
+)
 ```
 
 - 论文线图/等值线图优先 PDF/SVG；位图地图 300 dpi 足够，600 dpi 只在期刊明确要求时使用。
-- `bbox_inches="tight"` 会改变画布边界；如果多面板需要严格对齐，改用 `constrained_layout` 或显式 `subplots_adjust`，不要依赖 tight bbox 修布局。
+- `bbox_inches="tight"` 会改变画布边界；如果多面板需要严格对齐，改用 `constrained_layout` 或显式 `subplots_adjust`。它适合预览，不适合按期刊宽度交付。
 - 大 pcolormesh 加 `rasterized=True`，避免 PDF 体积爆炸。
 - 保存后必须打开 PNG 检查；不要只检查文件大小。
+- 用 `check_figure(fig, check_bounds=True)` 检查画布越界；`save_figure(check=True, tight=False)` 会自动做同样的检查。
 
 ## 9. 期刊预设、QA 与可访问性
 
-- **期刊宽度**：`ocean_journal.get_journal("agu")`，用 `width_in("double")` 定 figsize；`apply_journal_style()` 同步字号。数值是经验值，投稿前核对 author guidelines。
-- **布局 QA**：`check_figure(fig, check_bounds=True)` 抓刻度重叠和画布越界；必须在保存前调用一次。
-- **色标筛查**：`ocean_access.accessibility_report("cmo.balance")` 检查灰度间隔与近似 CVD；有 warning 时换色标、加等值线/纹理，而不是只调透明度。
+- **期刊宽度**：`ocean_journal.get_journal("agu")`，用 `width_in("double")` 定 figsize；`apply_journal_style()` 同步字号。数值是经验值，投稿前核对 author guidelines；Nature 的 6 pt 等例外必须单独确认。
+- **顺序**：先 `set_ocean_style(base_size=8)`，再 `apply_journal_style(journal)`；后者应覆盖线宽和标题字号。
+- **布局 QA**：`check_figure(fig, check_bounds=True)` 抓刻度重叠和画布越界；必须在保存前调用一次，并实际打开 PNG。
+- **色标筛查**：`ocean_access.accessibility_report("cmo.balance")` 检查灰度间隔与近似 CVD；warning 只是提示，不等于“不可用”。先在实际尺寸和灰度下复核，再决定加等值线/纹理或换色标。
 - **PDF 体积**：多面板优先 `50m` 海岸线；`10m` 用于单张大图。pcolormesh 加 `rasterized=True`，但海岸线/陆地仍可能是 PDF 体积主因。
 
-## 10. 常见错误清单
+## 10. 验收与失败案例
+
+### 10.1 仓库级验收
+
+```bash
+python -m pytest -q
+python scripts/ocean_plot.py --self-test
+python templates/map_panel_grid.py --demo
+python templates/mixed_panel_grid.py --demo
+```
+
+预期：
+
+- 测试全绿、self-test 打印 `self-test OK`；
+- 两个模板都生成 PNG 和 PDF，且 `check_figure` 无 warning；
+- 地图/混合模板的 PNG 宽度约等于 AGU 双栏宽度 × 300 dpi（允许 1–2 px 取整）；
+- 打开 PNG 检查面板字母、标题、轴标签和两条 colorbar 都不被裁切；
+- PDF 中文字为嵌入字体（`pdf.fonttype=42`）。
+
+### 10.2 成图验收
+
+- **形状**：`validate_grid` 通过；2D 坐标没有转置错误。
+- **地图**：经纬度标签正确；Mercator 不会出现所有标签同一个经度；LCC 用 gridline labels。
+- **色标**：标签带单位；4–7 个刻度；`extend` 与数据范围一致；同变量多面板共用。
+- **版面**：最终 `figsize` 未被 tight bbox 改变；panel label 在左上外侧；没有文字压色标或刻度。
+- **时间**：跨年/跨月格式正确；45–60 天图能看到足够的时间刻度。
+- **字体**：没有方框/缺字；负号正常；PDF 字体可嵌入。
+
+### 10.3 失败案例
+
+| 症状 | 根因 | 修正 |
+|---|---|---|
+| 地图 PNG 只有 6.37 in 宽，但 figsize 是 7.09 in | `save_figure` 使用 `bbox_inches="tight"`，裁掉了设计边距 | 传 `tight=False`；用像素宽度验收 |
+| 色标顶端有三角，但数据最大 0.27 < vmax 0.30 | 无条件 `extend="max"` | 改 `"neither"`，或按真实截断设 `extend` |
+| Mercator 所有经度标签都是 `120.001°E` | `set_degree_ticks` 未把经纬度传给 Cartopy | 默认 `crs=PlateCarree()`；非矩形投影用 gridlines |
+| 全球图只剩一条经线 | 全图边界被 `% 360` 后 lo==hi | 修 `subset_region` 的全图分支；加 1D/2D 回归 |
+| 2D 曲线坐标报 `Dimensions {'lat','lon'} do not exist` | `grid_arrays` 把坐标名当维度名 | 用坐标的 `.dims` 推导 transpose 顺序 |
+| FFT 图看起来正常，但缺测被压成规则采样 | 直接 `x = x[np.isfinite(x)]` | 插值到规则时间，或改用 Lomb–Scargle；`fft_amplitude` 默认会拒绝 NaN |
+| 9 个色标刻度挤在一起 | 把等值线级别直接当 colorbar ticks | 用 `colorbar_ticks()` 取 4–7 个 |
+
+## 11. 常见错误清单
 
 | 现象 | 常见原因 | 修正 |
 |---|---|---|
@@ -364,9 +347,9 @@ fig.savefig(output_pdf, bbox_inches="tight",
 | 经纬度标签重叠 | 固定 2°/3° 刻度 | `auto_tick_step` + 减少刻度 |
 | 色标有三角但数据没截断 | 无脑 `extend="max"` | 用 `"neither"` |
 | 色标没有单位 | 只写变量名 | `label="SSH (m)"` |
-| 负号变方框 | Arial 缺 U+2212 | `axes.unicode_minus=False` |
+| 负号变方框 | 字体缺 U+2212 | `axes.unicode_minus=False` |
 | 中文变方框 | 字体无 CJK | 加 CJK 字体并实测 |
-| 散点报 “cmo.dense not found” | 把字符串当色标名 | `cmo.cm.dense` / `get_cmap()` |
+| 散点报找不到 `cmo.dense` | 把字符串直接传给 `cmap=` | 用 `get_cmap("cmo.dense")` 或 `cmocean.cm.dense` 对象 |
 | 时间轴挤成一团 | 跨年还用日刻度 | `auto_time_axis()` |
 | 海岸线被数据盖住 | zorder 顺序错 | 陆地/海岸线 zorder 更高 |
 | PDF 巨大 | pcolormesh 未栅格化 | `rasterized=True` |

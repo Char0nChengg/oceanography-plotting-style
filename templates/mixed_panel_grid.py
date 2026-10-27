@@ -22,6 +22,12 @@ from __future__ import annotations
 import sys
 from pathlib import Path
 
+if __name__ == "__main__" and "--demo" not in sys.argv:
+    raise SystemExit(
+        "This is a synthetic demo template. Pass --demo to render it; "
+        "replace the synthetic fields before using it for a paper."
+    )
+
 import numpy as np
 import matplotlib
 matplotlib.use("Agg")
@@ -32,7 +38,6 @@ sys.path.insert(0, str(SKILL_DIR / "scripts"))
 
 try:
     import cartopy.crs as ccrs
-    import cmocean as cmo
 except ModuleNotFoundError as exc:  # pragma: no cover - environment guard
     raise SystemExit(
         "This template needs cartopy and cmocean. "
@@ -66,7 +71,7 @@ def main() -> None:
     # ========== 地图色标 ==========
     map_cmap_name = "cmo.dense"
     map_vmin, map_vmax = 0.0, 0.30
-    map_extend = "max"
+    map_extend = "neither"       # synthetic data stay inside [vmin, vmax]
     map_cbar_label = "SSH amplitude (m)"
 
     # ========== 剖面色标 ==========
@@ -86,6 +91,8 @@ def main() -> None:
 
     set_ocean_style(base_size=style.body_pt)
     apply_journal_style(journal_name)
+    map_cmap = get_cmap(map_cmap_name)
+    prof_cmap = get_cmap(prof_cmap_name)
 
     # ---- synthetic data: replace with real fields ----
     lon = np.arange(lon_min, lon_max + 0.01, 0.1)
@@ -113,7 +120,7 @@ def main() -> None:
     fig = plt.figure(figsize=(fig_width, fig_height), layout="constrained")
     gs = fig.add_gridspec(
         2, 2, width_ratios=[1.2, 1.0], height_ratios=[1.0, 0.8],
-        hspace=0.12, wspace=0.10,
+        hspace=0.06, wspace=0.10,
     )
 
     ax_map = fig.add_subplot(gs[0, 0], projection=projection)
@@ -122,7 +129,7 @@ def main() -> None:
 
     # ---- (a) map ----
     pcm = ax_map.pcolormesh(
-        lon, lat, ssh, cmap=get_cmap(map_cmap_name),
+        lon, lat, ssh, cmap=map_cmap,
         vmin=map_vmin, vmax=map_vmax, shading="auto",
         transform=projection, rasterized=True,
     )
@@ -162,7 +169,7 @@ def main() -> None:
 
     # ---- (c) vertical section ----
     mesh = ax_prof.pcolormesh(
-        dates, depth, temp.T, cmap=get_cmap(prof_cmap_name),
+        dates, depth, temp.T, cmap=prof_cmap,
         vmin=prof_vmin, vmax=prof_vmax, shading="auto", rasterized=True,
     )
     ax_prof.invert_yaxis()
@@ -180,16 +187,13 @@ def main() -> None:
     )
     cbar_prof.set_ticks([5, 10, 15, 20, 25])
 
-    for issue in check_figure(fig):
+    for issue in check_figure(fig, check_bounds=True):
         print("layout warning:", issue)
-    written = save_figure(fig, output_png, dpi=save_dpi, also_pdf=True)
+    written = save_figure(
+        fig, output_png, dpi=save_dpi, also_pdf=True, tight=False,
+    )
     print("saved:", ", ".join(str(p) for p in written))
 
 
 if __name__ == "__main__":
-    if "--demo" not in sys.argv:
-        raise SystemExit(
-            "This is a synthetic demo template. Pass --demo to render it; "
-            "replace the synthetic fields before using it for a paper."
-        )
     main()

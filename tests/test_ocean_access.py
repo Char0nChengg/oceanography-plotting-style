@@ -24,3 +24,10 @@ def test_simulate_cvd_shape_and_range():
 def test_unknown_cvd_kind():
     with pytest.raises(ValueError, match="unknown CVD"):
         oa.simulate_cvd("cmo.balance", kind="not-a-kind")
+
+
+def test_accessibility_rejects_invalid_sampling():
+    with pytest.raises(ValueError, match="n must be"):
+        oa.simulate_cvd("cmo.balance", n=1)
+    with pytest.raises(ValueError, match="levels"):
+        oa.accessibility_report("cmo.balance", n=8, levels=9)

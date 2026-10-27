@@ -18,14 +18,13 @@ from typing import Iterable, Sequence
 
 import matplotlib as mpl
 
-mpl.use("Agg")  # batch/headless-safe; templates also save without a GUI
 import matplotlib.dates as mdates
 import matplotlib.pyplot as plt
 import numpy as np
 from matplotlib import font_manager
 from matplotlib.colors import LinearSegmentedColormap
 
-__version__ = "0.2.0"
+__version__ = "0.2.1"
 
 
 # ---------------------------------------------------------------------------
@@ -178,12 +177,16 @@ def set_degree_ticks(
     fontsize: float | None = None,
     target_ticks: int = 6,
 ) -> tuple[np.ndarray, np.ndarray]:
-    """Set Cartopy lon/lat ticks and formatters.
+    """Set degree ticks and formatters on a map axis.
 
-    ``extent`` is ``[lon_min, lon_max, lat_min, lat_max]``.  For a non-GeoAxes
-    the ``crs`` argument is ignored, which keeps the helper usable for quick
-    Cartesian tests.
+    ``extent`` is ``[lon_min, lon_max, lat_min, lat_max]``.  GeoAxes default to
+    ``crs=PlateCarree()`` because otherwise Mercator tick positions are
+    interpreted as projected metres.  Cartopy's longitude/latitude formatters
+    only support rectangular projections; for Lambert, Robinson and similar
+    projections this raises ``NotImplementedError`` and callers should use
+    ``ax.gridlines(draw_labels=True, xlocs=[110, 120, 130])`` instead.
     """
+    import cartopy.crs as ccrs
     from cartopy.mpl.ticker import LatitudeFormatter, LongitudeFormatter
 
     lon_min, lon_max, lat_min, lat_max = map(float, extent)
@@ -197,6 +200,18 @@ def set_degree_ticks(
 
     is_geo = hasattr(ax, "projection") and hasattr(ax, "set_extent")
     if is_geo:
+        if crs is None:
+            crs = ccrs.PlateCarree()
+        projection = ax.projection
+        rectangular = isinstance(
+            projection, (ccrs._RectangularProjection, ccrs.Mercator),
+        )
+        if not rectangular:
+            raise NotImplementedError(
+                "set_degree_ticks supports rectangular projections only; "
+                "for this projection use ax.gridlines(draw_labels=True, "
+                "xlocs=[110, 120, 130], ylocs=[20, 30], crs=ccrs.PlateCarree())."
+            )
         ax.set_xticks(xticks, crs=crs)
         ax.set_yticks(yticks, crs=crs)
     else:
@@ -321,21 +336,26 @@ def robust_limits(
         center = lo if np.isfinite(lo) else 0.0
         return center - 1.0, center + 1.0
     span = hi - lo
-    return lo - pad * span, hi + pad * span
+    lower, upper = lo - pad * span, hi + pad * span
+    if include_zero:
+        if lo >= 0:
+            lower = max(lower, 0.0)
+        if hi <= 0:
+            upper = min(upper, 0.0)
+    return lower, upper
 
 
 def colorbar_ticks(
     vmin: float, vmax: float, n: int = 5, symmetric: bool = False,
 ) -> np.ndarray:
-    """Four to seven readable colorbar ticks."""
+    """Four to seven readable colorbar ticks (one for a constant range)."""
+    n = int(np.clip(int(n), 4, 7))
     if symmetric:
         vmax = max(abs(float(vmin)), abs(float(vmax)))
-        return np.linspace(-vmax, vmax, max(int(n), 3))
+        return np.linspace(-vmax, vmax, n)
     if float(vmin) == float(vmax):
         return np.array([float(vmin)])
-    locator = mpl.ticker.MaxNLocator(
-        nbins=max(int(n), 2), steps=[1, 2, 2.5, 5, 10],
-    )
+    locator = mpl.ticker.MaxNLocator(nbins=n, steps=[1, 2, 2.5, 5, 10])
     vals = locator.tick_values(float(vmin), float(vmax))
     vals = vals[(vals >= vmin - 1e-12) & (vals <= vmax + 1e-12)]
     if vals.size < 2:
@@ -467,11 +487,13 @@ def keep_largest_region(values, connectivity: int = 2, copy: bool = True) -> np.
     """Keep the largest finite connected component; 8-connected by default."""
     from scipy.ndimage import label
 
+    if connectivity not in {1, 2, 4, 8}:
+        raise ValueError("connectivity must be 1, 2, 4, or 8")
     arr = np.array(values, dtype=float, copy=True) if copy else np.asarray(values, dtype=float)
     mask = np.isfinite(arr)
     if not mask.any():
         return arr
-    structure = np.ones((3, 3), dtype=int) if connectivity == 2 else None
+    structure = np.ones((3, 3), dtype=int) if connectivity in {2, 8} else None
     lab, n = label(mask, structure=structure)
     if n == 0:
         return arr
@@ -529,12 +551,19 @@ def auto_time_axis(ax, time_values, max_ticks: int = 7):
             stacklevel=2,
         )
 
+    if arr.dtype.kind == "m":
+        raise TypeError(
+            "timedelta values are not a time axis; convert them to datetimes "
+            "or plot them on a numeric duration axis"
+        )
+
     if np.issubdtype(arr.dtype, np.number):
         locator = mpl.ticker.MaxNLocator(nbins=max_ticks)
         ax.xaxis.set_major_locator(locator)
+        ax.xaxis.set_major_formatter(mpl.ticker.ScalarFormatter())
         return locator, None
 
-    if arr.dtype.kind in {"O", "M", "m"}:
+    if arr.dtype.kind in {"O", "M"}:
         t0, t1 = sorted((_as_datetime(arr[0]), _as_datetime(arr[-1])))
         span_seconds = (t1 - t0).total_seconds()
     else:
@@ -554,13 +583,9 @@ def auto_time_axis(ax, time_values, max_ticks: int = 7):
         locator = mdates.MonthLocator(interval=months)
         formatter = mdates.DateFormatter("%Y-%m")
         rotation = 30
-    elif span_days >= 120:
+    elif span_days >= 90:
         months = max(1, math.ceil(span_days / 30.44 / max_ticks))
         locator = mdates.MonthLocator(interval=months)
-        formatter = mdates.DateFormatter("%Y-%m")
-        rotation = 30
-    elif span_days >= 31:
-        locator = mdates.MonthLocator(interval=1)
         formatter = mdates.DateFormatter("%Y-%m")
         rotation = 30
     elif span_days >= 2:
@@ -697,12 +722,20 @@ def save_figure(
     """Save a figure and return every path written.
 
     With ``check=True``, the layout QA report is emitted as warnings before
-    writing.  It is opt-in because some intentionally bleeding labels are valid.
+    writing.  Canvas-bound checks are enabled when ``tight=False``; a tight
+    bounding box deliberately expands the canvas, so bounds are not meaningful
+    in that mode.
+
+    ``tight=True`` crops to the artists and therefore changes the final physical
+    size.  For a journal figure whose ``figsize`` is already the required width,
+    pass ``tight=False``.
     """
+    if dpi <= 0:
+        raise ValueError(f"dpi must be positive, got {dpi!r}")
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
     if check:
-        for issue in check_figure(fig):
+        for issue in check_figure(fig, check_bounds=not tight):
             warnings.warn(issue, RuntimeWarning, stacklevel=2)
     if path.suffix.lower() in {".png", ".jpg", ".jpeg"} and dpi < 300:
         warnings.warn(f"Raster output at {dpi} dpi is below the 300 dpi default.", RuntimeWarning, stacklevel=2)

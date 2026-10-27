@@ -29,6 +29,19 @@ English introduction: [README.en.md](README.en.md) — a reusable Agent Skill an
 
 ---
 
+## 设计立场
+
+本项目的所有绘图风格都按作者的个人偏好设计，不是期刊官方模板。不同作者、期刊和审稿人有各自的视觉传统；有些常见的投稿图把较多注意力放在装饰、饱和度或层层堆叠的文字上，反而削弱了数据本身的可读性。本项目选择更克制、信息密度更高的表达，但不评判其他作者，投稿时仍以目标期刊最新指南为准。
+
+- **只用 cmocean 色标**：不用 jet/rainbow；根据变量属性选择顺序、发散或循环色标。
+- **图优先、文字克制**：没有整张图的主标题，只有子图副标题和 `(a)`/`(b)` 面板字母；能共享的横纵坐标就共享。
+- **Colorbar 清晰但不占主图**：优先外置列、图下横条或 inset，必要时使用分段/拼接色标；刻度 4–7 个，`extend` 必须诚实。
+- **分析图同源**：CCA、小波、谱分析、EMD 等也采用同一套作者风格；这些做法已在作者本人的投稿与返修中使用，并接受过期刊编辑与审稿流程的检验。后续计划整理由问题驱动的海洋/大气统计分析教程。
+
+完整说明见 [设计立场](docs/style-philosophy.md)。这是一套可重复、可检查的个人工作流，不是唯一的正确审美。
+
+---
+
 ## 示例
 
 3×2 区域地图（合成数据，仅演示版式与色标）：
@@ -109,6 +122,8 @@ conda activate oceanography-plotting-style
 
 ## 快速开始
 
+下面的例子使用 `.[full]` 依赖（Cartopy、cmocean、xarray）。
+
 ```python
 from pathlib import Path
 
@@ -117,6 +132,7 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import cartopy.crs as ccrs
 
+from ocean_data import grid_arrays, load_for_plot
 from ocean_plot import (
     add_map_features, add_panel_label, auto_tick_step, check_figure,
     get_cmap, save_figure, set_degree_ticks, set_ocean_style, validate_grid,
@@ -124,14 +140,20 @@ from ocean_plot import (
 from ocean_journal import get_journal, apply_journal_style
 
 journal = get_journal("agu")
-apply_journal_style(journal.key)
 set_ocean_style(base_size=journal.body_pt)
+apply_journal_style(journal.key)   # 顺序不能反：覆盖 journal 线宽
 
 lon_min, lon_max = 112.0, 132.0
 lat_min, lat_max = 17.0, 32.5
 fig_width = journal.width_in("double")
 
-# lon, lat, ssh = ...  # 你的数据
+# 换成你的文件；地图这里显式取第一帧
+da = load_for_plot(
+    "data/ssh.nc", "ssh",
+    region={"lon": (lon_min, lon_max), "lat": (lat_min, lat_max)},
+)
+frame = da.isel(time=0) if "time" in da.dims else da
+lon, lat, ssh = grid_arrays(frame)
 validate_grid(lon, lat, ssh)
 
 fig, ax = plt.subplots(
@@ -156,15 +178,18 @@ set_degree_ticks(ax, [lon_min, lon_max, lat_min, lat_max],
 ax.set_aspect("equal")
 add_panel_label(ax, "(a)")
 
-cbar = fig.colorbar(mesh, ax=ax, extend="max")
+cbar = fig.colorbar(mesh, ax=ax, extend="neither")
 cbar.set_label("SSH amplitude (m)")
 
 for issue in check_figure(fig, check_bounds=True):
     print("layout warning:", issue)
-save_figure(fig, Path("figures/Fig_01.png"), dpi=300, also_pdf=True)
+save_figure(
+    fig, Path("figures/Fig_01.png"), dpi=journal.dpi,
+    also_pdf=True, tight=False,
+)
 ```
 
-> 完整可运行写法见 `templates/map_panel_grid.py`；上面的片段省略了数据读取和 `main()` 包装。
+> 上面的片段默认存在 `data/ssh.nc`，并显式取第一帧；请换成自己的文件和时间选择。模板版见 `templates/map_panel_grid.py`。
 
 ---
 
@@ -193,8 +218,10 @@ da = pick_var(ds, "ssh")
 lon, lat, data = grid_arrays(da)
 ```
 
-- 支持 1D 规则经纬度和 2D 曲线经纬度；
-- 跨日界线/负经度会返回单调展开的 0–360° 坐标（可能 >360），需配 `central_longitude=180` 或等价投影；
+- 支持 1D 规则经纬度和 2D 曲线经纬度，`grid_arrays()` 不要求坐标名等于维度名；
+- 1D 跨日界线/负经度会返回单调展开的 0–360° 坐标（可能 >360），需配 `central_longitude=180` 或等价投影；
+- 2D 曲线坐标只做布尔掩膜，保留原生坐标，不会 unwrap 或排序；
+- 全图范围 `(-180, 180)` / `(0, 360)` 不会裁掉经度；
 - `load_for_plot()` 默认保留时间维，不会静默 `isel(time=0)`。
 
 ---
@@ -238,7 +265,7 @@ print(report["warnings"])
 | `elsevier` | Elsevier | 90 mm | 190 mm | 8 pt |
 | `nature` | Nature 系列 | 89 mm | 183 mm | 6 pt |
 
-这些是**实用默认值**，不是期刊官方模板；投稿前请核对最新 author guidelines。
+这些是**作者实践中的实用默认值**，不是期刊官方模板；不同期刊、不同年份的指南会变化（例如 Nature 的 6 pt），投稿前必须核对最新 author guidelines。
 
 ```python
 from ocean_journal import get_journal, figure_size, apply_journal_style
@@ -257,8 +284,9 @@ apply_journal_style("ams")
 ├── SKILL.md                  # Agent Skill 入口
 ├── README.md                 # 中文介绍
 ├── README.en.md              # English introduction
+├── CHANGELOG.md
 ├── references/
-│   ├── style-reference.md    # 字体、版面、地图、色标
+│   ├── style-reference.md    # 字体、版面、地图、色标、验收
 │   ├── data-prep.md          # xarray、区域、经度、滤波
 │   └── figure-recipes.md     # Hovmöller、剖面、FFT、quiver
 ├── scripts/
@@ -271,8 +299,13 @@ apply_journal_style("ams")
 │   ├── map_panel_grid.py
 │   └── mixed_panel_grid.py
 ├── tests/
-├── docs/assets/
-└── .github/workflows/ci.yml
+├── docs/
+│   ├── style-philosophy.md   # 设计立场（中文）
+│   ├── style-philosophy.en.md
+│   └── assets/
+└── .github/workflows/
+    ├── ci.yml
+    └── release.yml
 ```
 
 ---
@@ -281,18 +314,18 @@ apply_journal_style("ams")
 
 ```bash
 python scripts/ocean_plot.py --self-test
-pytest -q
+python -m pytest -q
 ```
 
 已在以下环境实际渲染验证：
 
-- Python 3.13
+- Python 3.13.9（Anaconda base）
 - Matplotlib 3.10.6
 - Cartopy 0.25.0
 - cmocean 3.0.3
-- xarray / scipy / pandas（Anaconda 环境）
+- xarray 2025.10.1 / scipy 1.16.3 / pandas 2.3.3
 
-CI 在 Ubuntu + Python 3.10/3.12 上安装 Cartopy，运行测试并渲染两个模板。
+CI 在 Ubuntu + Python 3.10/3.12/3.13 上安装 Cartopy，运行测试、self-test、两个模板，并构建/检查 wheel 与 sdist。
 
 ---
 
@@ -301,10 +334,13 @@ CI 在 Ubuntu + Python 3.10/3.12 上安装 Cartopy，运行测试并渲染两个
 - 主要支持规则 1D 和 2D 曲线经纬度；**不直接支持** ROMS 交错网格、非结构三角网格、投影坐标（m/km）的自动转换。
 - 期刊栏宽/字号是经验值，不能替代最新投稿指南。
 - `auto_tick_step()` 仍是启发式；`check_figure()` 会抓实际刻度重叠，但不做图像 diff。
+- `set_degree_ticks()` 只支持 PlateCarree/Mercator 等矩形投影；LCC/Robinson 等请用 `gridlines(draw_labels=True)`。
 - CVD 矩阵是近似；正式投稿前建议用专用工具复核。
 - AR(1) 阈值只有一个红噪声零假设；复杂谱峰需问题特定的检验。
 - Natural Earth 数据首次使用会下载；离线环境需提前缓存。
 - 模板数据全部是合成的，必须替换；`--demo` 是防误用开关。
+- `pip install` 安装的是 Python 模块；`SKILL.md`、`references/` 和 `templates/` 通过仓库/skill 目录分发，不进入 wheel。
+- `tight=True` 会改变成品物理尺寸；论文交付使用 `tight=False` 并在保存前做画布检查。
 
 ---
 
@@ -317,13 +353,13 @@ CI 在 Ubuntu + Python 3.10/3.12 上安装 Cartopy，运行测试并渲染两个
 - 真实数据（可公开）的端到端示例；
 - 视觉回归基线。
 
-请确保 `pytest -q` 通过，并附上渲染后的 PNG。
+请确保 `python -m pytest -q` 通过，并附上渲染后的 PNG。
 
 ---
 
 ## License
 
-MIT。见 [LICENSE](LICENSE)。
+MIT。见 [LICENSE](LICENSE)。版本历史见 [CHANGELOG.md](CHANGELOG.md)。
 
 ## 引用
 

@@ -91,6 +91,8 @@ def ar1_threshold(
     """
     if not 0 < confidence < 1:
         raise ValueError("confidence must be in (0, 1)")
+    if not isinstance(n_sim, (int, np.integer)) or isinstance(n_sim, bool):
+        raise TypeError("n_sim must be an integer")
     if n_sim < 10:
         raise ValueError("n_sim must be >= 10")
 
@@ -98,15 +100,28 @@ def ar1_threshold(
     freq, amp = fft_amplitude(x, dt=dt, detrend=detrend, window=window)
     rho, sigma = ar1_fit(x)
     n = x.size
+    metadata = {
+        "frequency": freq,
+        "amplitude": amp,
+        "rho": rho,
+        "confidence": confidence,
+        "n_sim": int(n_sim),
+        "seed": int(seed),
+        "detrend": detrend,
+        "window": window,
+    }
     if sigma <= 0:
         return {
-            "frequency": freq, "amplitude": amp, "threshold": np.zeros_like(amp),
-            "rho": rho, "confidence": confidence,
+            **metadata,
+            "threshold": np.zeros_like(amp),
         }
 
+    # Start from the stationary AR(1) distribution, not from the innovation
+    # standard deviation: var(x) = sigma**2 / (1 - rho**2).
+    stationary_sigma = sigma / np.sqrt(max(1.0 - rho * rho, 1e-12))
     rng = np.random.default_rng(seed)
     sim = np.empty((n_sim, n), dtype=float)
-    sim[:, 0] = rng.normal(0.0, sigma, size=n_sim)
+    sim[:, 0] = rng.normal(0.0, stationary_sigma, size=n_sim)
     innov = rng.normal(0.0, sigma, size=(n_sim, n - 1))
     for i in range(1, n):
         sim[:, i] = rho * sim[:, i - 1] + innov[:, i - 1]
@@ -126,21 +141,28 @@ def ar1_threshold(
     if n % 2 == 0:
         amp_sim[:, -1] /= 2.0
     threshold = np.quantile(amp_sim, confidence, axis=0)
-    return {
-        "frequency": freq,
-        "amplitude": amp,
-        "threshold": threshold,
-        "rho": rho,
-        "confidence": confidence,
-    }
+    return {**metadata, "threshold": threshold}
 
 
 def dominant_period(freq, amplitude, fmin: float = 0.0):
-    """Return the period of the largest non-DC spectral peak."""
+    """Return the period of the largest spectral peak above ``fmin``."""
     freq = np.asarray(freq, float)
     amplitude = np.asarray(amplitude, float)
+    if freq.ndim != 1 or amplitude.ndim != 1 or freq.shape != amplitude.shape:
+        raise ValueError(
+            f"freq and amplitude must be same-shape 1D arrays, got {freq.shape} "
+            f"and {amplitude.shape}"
+        )
+    if freq.size == 0:
+        raise ValueError("freq is empty")
+    if not np.isfinite(fmin) or fmin < 0:
+        raise ValueError("fmin must be finite and >= 0")
+    if not np.isfinite(freq).all() or not np.isfinite(amplitude).all():
+        raise ValueError("freq and amplitude must be finite")
     mask = freq > fmin
     if not mask.any():
-        raise ValueError("no positive frequencies")
+        raise ValueError("no frequencies above fmin")
     idx = np.flatnonzero(mask)[np.argmax(amplitude[mask])]
-    return 1.0 / freq[idx]
+    if not freq[idx] > 0:
+        raise ValueError("selected frequency must be positive")
+    return 1.0 / float(freq[idx])

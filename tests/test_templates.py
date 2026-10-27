@@ -7,6 +7,9 @@ import sys
 from pathlib import Path
 
 import pytest
+from PIL import Image
+
+from ocean_journal import get_journal
 
 ROOT = Path(__file__).resolve().parents[1]
 HAS_CARTOPY = importlib.util.find_spec("cartopy") is not None
@@ -36,7 +39,12 @@ def test_template_renders(tmp_path, script, output):
         check=False,
     )
     assert result.returncode == 0, result.stderr
+    assert "layout warning" not in result.stdout
     png = tmp_path / output
     assert png.exists()
     assert png.stat().st_size > 10_000
     assert png.with_suffix(".pdf").exists()
+
+    expected_w = round(get_journal("agu").width_in("double") * 300)
+    with Image.open(png) as image:
+        assert abs(image.width - expected_w) <= 2
