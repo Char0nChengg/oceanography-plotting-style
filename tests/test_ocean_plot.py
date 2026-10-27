@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import builtins
+
 import matplotlib.dates as mdates
 import matplotlib.pyplot as plt
 import numpy as np
@@ -199,3 +201,16 @@ def test_robust_limits_include_zero_does_not_invent_negative_range():
 def test_keep_largest_region_rejects_unknown_connectivity():
     with pytest.raises(ValueError, match="connectivity"):
         op.keep_largest_region(np.ones((3, 3)), connectivity=3)
+
+
+def test_self_test_skips_optional_scipy(monkeypatch, capsys):
+    real_import = builtins.__import__
+
+    def guarded_import(name, *args, **kwargs):
+        if name == "scipy" or name.startswith("scipy."):
+            raise ImportError("blocked for test")
+        return real_import(name, *args, **kwargs)
+
+    monkeypatch.setattr(builtins, "__import__", guarded_import)
+    op._self_test()
+    assert "scipy not installed" in capsys.readouterr().out

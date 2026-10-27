@@ -781,12 +781,17 @@ def _self_test() -> None:
     constant = iqr_filter(np.ones((4, 4)))
     assert np.isfinite(constant).all(), "constant field must survive IQR filter"
 
-    blobs = np.full((20, 20), np.nan)
-    blobs[1:4, 1:4] = 1.0
-    blobs[10:18, 10:18] = 2.0
-    one = keep_largest_region(blobs)
-    assert np.isfinite(one[10:18, 10:18]).all()
-    assert np.isnan(one[1:4, 1:4]).all()
+    try:
+        import scipy  # noqa: F401 - optional dependency
+    except ImportError:
+        print("self-test: scipy not installed; skipping largest-region check")
+    else:
+        blobs = np.full((20, 20), np.nan)
+        blobs[1:4, 1:4] = 1.0
+        blobs[10:18, 10:18] = 2.0
+        one = keep_largest_region(blobs)
+        assert np.isfinite(one[10:18, 10:18]).all()
+        assert np.isnan(one[1:4, 1:4]).all()
 
     dates = np.arange("2020-01-01", "2021-01-01", dtype="datetime64[D]")
     fig, ax = plt.subplots(figsize=(4, 2.5), constrained_layout=True)

@@ -58,6 +58,8 @@ Keep a Changelog; versions use semantic versioning.
 - Invalid `keep_largest_region()` connectivity and accessibility sampling
   counts now raise actionable errors.
 - The FFT recipe no longer silently compresses gaps before spectral analysis.
+- `ocean-plot --self-test` now skips the optional SciPy connected-region check
+  when SciPy is not installed, so the minimal wheel smoke test passes.
 
 ### Documentation
 
