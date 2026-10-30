@@ -52,8 +52,9 @@ from ocean_plot import (  # noqa: E402
     auto_time_axis,
     check_figure,
     get_cmap,
+    projection_for_region,
     save_figure,
-    set_degree_ticks,
+    set_map_ticks,
     set_ocean_style,
     validate_grid,
 )
@@ -116,7 +117,11 @@ def main() -> None:
     temp = np.clip(temp, prof_vmin, prof_vmax)
 
     # ---- layout ----
-    projection = ccrs.PlateCarree()
+    map_spec = projection_for_region(
+        lon_min, lon_max, lat_min, lat_max, kind="auto",
+    )
+    projection = map_spec.crs
+    data_crs = ccrs.PlateCarree()
     fig = plt.figure(figsize=(fig_width, fig_height), layout="constrained")
     gs = fig.add_gridspec(
         2, 2, width_ratios=[1.2, 1.0], height_ratios=[1.0, 0.8],
@@ -131,9 +136,9 @@ def main() -> None:
     pcm = ax_map.pcolormesh(
         lon, lat, ssh, cmap=map_cmap,
         vmin=map_vmin, vmax=map_vmax, shading="auto",
-        transform=projection, rasterized=True,
+        transform=data_crs, rasterized=True,
     )
-    ax_map.set_extent([lon_min, lon_max, lat_min, lat_max], crs=projection)
+    ax_map.set_extent([lon_min, lon_max, lat_min, lat_max], crs=data_crs)
     add_map_features(ax_map, scale=map_scale)
     ax_map.set_aspect("equal")
     lon_step, lat_step = auto_tick_step(
@@ -141,8 +146,8 @@ def main() -> None:
         figsize=(fig_width, fig_height), ncols=2, nrows=2,
         fontsize=font_tick,
     )
-    set_degree_ticks(
-        ax_map, [lon_min, lon_max, lat_min, lat_max],
+    set_map_ticks(
+        ax_map, map_spec, [lon_min, lon_max, lat_min, lat_max],
         lon_step=lon_step, lat_step=lat_step, fontsize=font_tick,
     )
     ax_map.set_title("SSH amplitude", fontsize=font_title, fontweight="normal", pad=4)

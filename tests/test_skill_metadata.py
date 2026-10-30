@@ -30,12 +30,17 @@ def test_required_skill_files():
         "CHANGELOG.md",
         "docs/style-philosophy.md",
         "docs/style-philosophy.en.md",
+        "docs/tutorials/README.md",
         ".github/workflows/ci.yml",
         ".github/workflows/release.yml",
+        "references/figure-catalog.md",
+        "references/netcdf-profiles.md",
         "references/style-reference.md",
         "references/data-prep.md",
         "references/figure-recipes.md",
+        "references/recipes/README.md",
         "scripts/ocean_plot.py",
+        "scripts/ocean_vocab.py",
         "scripts/ocean_data.py",
         "scripts/ocean_spectral.py",
         "scripts/ocean_journal.py",
@@ -68,9 +73,8 @@ def test_relative_links_exist():
         ROOT / "README.md",
         ROOT / "README.en.md",
         ROOT / "SKILL.md",
-        ROOT / "docs/style-philosophy.md",
-        ROOT / "docs/style-philosophy.en.md",
-        *sorted((ROOT / "references").glob("*.md")),
+        *sorted((ROOT / "docs").rglob("*.md")),
+        *sorted((ROOT / "references").rglob("*.md")),
     ]
     for document in documents:
         text = document.read_text(encoding="utf-8")
@@ -86,3 +90,13 @@ def test_relative_links_exist():
 def test_design_stance_is_linked_from_both_readmes():
     assert "设计立场" in (ROOT / "README.md").read_text(encoding="utf-8")
     assert "Design stance" in (ROOT / "README.en.md").read_text(encoding="utf-8")
+
+
+def test_tutorials_are_marked_human_only():
+    skill = (ROOT / "SKILL.md").read_text(encoding="utf-8")
+    tutorials = (ROOT / "docs" / "tutorials" / "README.md").read_text(encoding="utf-8")
+    assert "docs/tutorials" in skill
+    assert "默认忽略" in skill or "默认不读" in skill
+    assert "给 AI 的说明" in tutorials
+    assert "作者本人" in tutorials
+    assert "尽量不使用 AI 辅助创作" in tutorials

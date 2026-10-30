@@ -3,6 +3,35 @@
 All notable changes to this project are documented here.  The format follows
 Keep a Changelog; versions use semantic versioning.
 
+## [0.3.0] - 2026-10-30
+
+### Added
+
+- `ocean_vocab.py`: semantic variable registry, CF/product aliases, ambiguity
+  reporting, `inspect_dataset()`, and `ocean-plot --inspect`.
+- Human tutorial index with an explicit author statement: tutorials will be
+  written by the author, with minimal AI assistance, and will document the
+  research, statistical design, methodology, and plotting decisions behind the
+  author's papers.
+- `references/figure-catalog.md`: machine/human figure index with status and
+  required semantic variables.
+- Domain recipe split under `references/recipes/`; the old
+  `figure-recipes.md` remains as a compatibility index.
+- `docs/tutorials/README.md`: human-only learning path with an explicit
+  AI-ignore rule.
+- `references/netcdf-profiles.md`: naming/profile/diagnostic guidance.
+
+### Changed
+
+- Regional maps now default to Mercator through
+  `projection_for_region()`; global maps use Robinson, polar maps use
+  PolarStereo, and non-rectangular labels use `set_map_ticks()` gridlines.
+- Templates use the explicit `PlateCarree` data transform while the axes
+  projection is selected separately.
+- `ocean_data.pick_var()` uses ambiguity-aware semantic resolution and accepts
+  an optional product profile.
+- `figure-catalog.md` is now the first routing point for new figures.
+
 ## [0.2.1] - 2026-10-27
 
 ### Added

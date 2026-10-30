@@ -60,7 +60,9 @@ English introduction: [README.en.md](README.en.md) — a reusable Agent Skill an
 
 | 能力 | 说明 |
 |---|---|
-| 区域地图 | PlateCarree、经纬度 formatter、自适应刻度、陆地/海岸线、比例保护 |
+| 区域地图 | 区域默认 Mercator；全球 Robinson、极地 PolarStereo；经纬度 formatter/gridlines、自适应刻度、陆地/海岸线 |
+| NetCDF 适配 | `valid_time`/`nav_lon`/`uos/vos` 等别名、CF/profile、歧义报告、`ocean-plot --inspect` |
+| 图型目录 | catalog 先路由，按地图/剖面/时间/统计/谱/流场拆分 recipes；含 planned 状态 |
 | 多面板版式 | 共用色标、内侧标签隐藏、面板字母、GridSpec / 显式 colorbar 列 |
 | 垂向剖面 / Hovmöller | 深度方向、时间轴、对称/非对称色标、转置校验 |
 | 时间序列 | 均值 ± 标准差、滚动统计、自动时间 locator |
@@ -135,7 +137,8 @@ import cartopy.crs as ccrs
 from ocean_data import grid_arrays, load_for_plot
 from ocean_plot import (
     add_map_features, add_panel_label, auto_tick_step, check_figure,
-    get_cmap, save_figure, set_degree_ticks, set_ocean_style, validate_grid,
+    get_cmap, projection_for_region, save_figure, set_map_ticks,
+    set_ocean_style, validate_grid,
 )
 from ocean_journal import get_journal, apply_journal_style
 
@@ -156,25 +159,26 @@ frame = da.isel(time=0) if "time" in da.dims else da
 lon, lat, ssh = grid_arrays(frame)
 validate_grid(lon, lat, ssh)
 
+map_spec = projection_for_region(lon_min, lon_max, lat_min, lat_max, kind="auto")
+data_crs = ccrs.PlateCarree()
 fig, ax = plt.subplots(
     figsize=(fig_width, 4.8),
-    subplot_kw={"projection": ccrs.PlateCarree()},
+    subplot_kw={"projection": map_spec.crs},
     constrained_layout=True,
 )
-projection = ccrs.PlateCarree()
 mesh = ax.pcolormesh(
     lon, lat, ssh, cmap=get_cmap("cmo.dense"),
     vmin=0, vmax=0.3, shading="auto",
-    transform=projection, rasterized=True,
+    transform=data_crs, rasterized=True,
 )
-ax.set_extent([lon_min, lon_max, lat_min, lat_max], crs=projection)
+ax.set_extent([lon_min, lon_max, lat_min, lat_max], crs=data_crs)
 add_map_features(ax, scale="50m")
 step_x, step_y = auto_tick_step(
     lon_min, lon_max, lat_min, lat_max,
     figsize=(fig_width, 4.8), fontsize=journal.tick_pt,
 )
-set_degree_ticks(ax, [lon_min, lon_max, lat_min, lat_max],
-                 lon_step=step_x, lat_step=step_y)
+set_map_ticks(ax, map_spec, [lon_min, lon_max, lat_min, lat_max],
+              lon_step=step_x, lat_step=step_y)
 ax.set_aspect("equal")
 add_panel_label(ax, "(a)")
 
@@ -210,19 +214,40 @@ python templates/mixed_panel_grid.py --demo
 ## 数据准备
 
 ```python
+from ocean_vocab import inspect_dataset
 from ocean_data import canonicalize_dims, subset_region, pick_var, grid_arrays
 
-ds = canonicalize_dims(ds)
+print(inspect_dataset(ds).as_dict())   # 先看坐标和变量候选
+ds = canonicalize_dims(ds)              # valid_time/nav_lon 等归一化
 ds = subset_region(ds, lon_bounds=(112, 132), lat_bounds=(17, 32.5))
-da = pick_var(ds, "ssh")
+da = pick_var(ds, "ssh")                # 语义 key，不靠猜变量名
 lon, lat, data = grid_arrays(da)
 ```
 
+也可以先跑：
+
+```bash
+ocean-plot --inspect data.nc
+```
+
 - 支持 1D 规则经纬度和 2D 曲线经纬度，`grid_arrays()` 不要求坐标名等于维度名；
+- 识别 `valid_time`、`nav_lon/nav_lat`、`uos/vos`、`siconc/sithick` 等常见命名；歧义会报候选，不静默选第一个；
 - 1D 跨日界线/负经度会返回单调展开的 0–360° 坐标（可能 >360），需配 `central_longitude=180` 或等价投影；
 - 2D 曲线坐标只做布尔掩膜，保留原生坐标，不会 unwrap 或排序；
 - 全图范围 `(-180, 180)` / `(0, 360)` 不会裁掉经度；
 - `load_for_plot()` 默认保留时间维，不会静默 `isel(time=0)`。
+
+命名和诊断细节见 [netcdf-profiles.md](references/netcdf-profiles.md)。
+
+## 投影
+
+- 区域中低纬：**Mercator**（默认）
+- 全球：Robinson / EqualEarth
+- 极地：North/SouthPolarStereo
+- 高纬区域：LambertConformal
+- 数据 transform 始终是 `ccrs.PlateCarree()`
+
+`projection_for_region()` 负责选 axes 投影，`set_map_ticks()` 自动选择经纬度 formatter 或 gridline labels。图型总目录见 [figure-catalog.md](references/figure-catalog.md)，教程见 [docs/tutorials/](docs/tutorials/README.md)。
 
 ---
 
@@ -286,11 +311,15 @@ apply_journal_style("ams")
 ├── README.en.md              # English introduction
 ├── CHANGELOG.md
 ├── references/
+│   ├── figure-catalog.md     # 图型总目录：变量、投影、recipe、状态
 │   ├── style-reference.md    # 字体、版面、地图、色标、验收
 │   ├── data-prep.md          # xarray、区域、经度、滤波
-│   └── figure-recipes.md     # Hovmöller、剖面、FFT、quiver
+│   ├── netcdf-profiles.md    # CF/产品命名与数据集诊断
+│   ├── figure-recipes.md     # 兼容入口
+│   └── recipes/              # 按领域拆分的图型配方
 ├── scripts/
-│   ├── ocean_plot.py         # 刻度、地图、色标、QA、保存
+│   ├── ocean_plot.py         # 投影、刻度、地图、色标、QA、保存
+│   ├── ocean_vocab.py        # 变量/坐标别名、CF、数据集诊断
 │   ├── ocean_data.py         # 维度统一、区域裁剪、变量选择
 │   ├── ocean_spectral.py     # FFT + AR(1) 阈值
 │   ├── ocean_journal.py      # 期刊预设
@@ -302,6 +331,7 @@ apply_journal_style("ams")
 ├── docs/
 │   ├── style-philosophy.md   # 设计立场（中文）
 │   ├── style-philosophy.en.md
+│   ├── tutorials/            # 人类教程，AI 默认忽略
 │   └── assets/
 └── .github/workflows/
     ├── ci.yml
@@ -334,7 +364,10 @@ CI 在 Ubuntu + Python 3.10/3.12/3.13 上安装 Cartopy，运行测试、self-te
 - 主要支持规则 1D 和 2D 曲线经纬度；**不直接支持** ROMS 交错网格、非结构三角网格、投影坐标（m/km）的自动转换。
 - 期刊栏宽/字号是经验值，不能替代最新投稿指南。
 - `auto_tick_step()` 仍是启发式；`check_figure()` 会抓实际刻度重叠，但不做图像 diff。
-- `set_degree_ticks()` 只支持 PlateCarree/Mercator 等矩形投影；LCC/Robinson 等请用 `gridlines(draw_labels=True)`。
+- `set_degree_ticks()` 只支持 PlateCarree/Mercator 等矩形投影；LCC/Robinson 等请用 `set_map_ticks()` 的 gridlines 模式。
+- 区域地图默认 Mercator；全球用 Robinson，极地用 PolarStereo，高纬区域可显式用 Lambert。
+- `ocean_vocab` 遇到多个变量候选会报歧义，不会静默选择；新命名请补 profile 和合成测试。
+- `docs/tutorials/` 是给人看的教程，AI 普通绘图任务默认忽略。
 - CVD 矩阵是近似；正式投稿前建议用专用工具复核。
 - AR(1) 阈值只有一个红噪声零假设；复杂谱峰需问题特定的检验。
 - Natural Earth 数据首次使用会下载；离线环境需提前缓存。

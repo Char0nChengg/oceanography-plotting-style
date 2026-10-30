@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "oceanography-plotting-style"
-version = "0.2.1"
+version = "0.3.0"
 description = "Publication-quality physical oceanography figures with Matplotlib, Cartopy and cmocean, packaged as a reusable Agent Skill."
 readme = "README.md"
 requires-python = ">=3.10"
@@ -63,6 +63,7 @@ package-dir = { "" = "scripts" }
 py-modules = [
   "ocean_plot",
   "ocean_data",
+  "ocean_vocab",
   "ocean_spectral",
   "ocean_journal",
   "ocean_access",

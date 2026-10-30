@@ -40,14 +40,31 @@ da = pick_var(ds, "ssh")
 
 `canonicalize_dims()` 只映射语义明确的别名；`x/y` 只有在单位不是 m/km 时才可能改名，并在无法判断时警告。已有 `lon`/`latitude` 等标准名时，不会再用别名覆盖。改完名后必须再看一次 `ds.dims`。
 
-`pick_var()` 支持的常见别名：
+变量名不确定时先诊断：
+
+```bash
+ocean-plot --inspect data.nc
+```
+
+```python
+from ocean_vocab import inspect_dataset, resolve_variable
+
+print(inspect_dataset(ds).as_dict())
+name = resolve_variable(ds, "u_surface")   # 歧义时列出候选，不静默选择
+```
+
+更完整的 CF/profile 说明见 [netcdf-profiles.md](netcdf-profiles.md)。
+
+`pick_var()` 支持的常见语义：
 
 ```text
-ssh  -> ssh, zos, sla, adt, sea_surface_height
-u    -> u, uo, water_u, eastward_sea_water_velocity
-v    -> v, vo, water_v, northward_sea_water_velocity
-temp -> temp, thetao, temperature, sea_water_temperature
-salt -> salt, so, salinity, sea_water_salinity
+ssh       -> ssh, zos, sla, adt, sea_surface_height
+u_current -> u, uo, water_u, eastward_sea_water_velocity
+v_current -> v, vo, water_v, northward_sea_water_velocity
+u_surface -> uos, usurface, surface_u
+v_surface -> vos, vsurface, surface_v
+temp      -> temp, thetao, temperature, sea_water_temperature
+salt      -> salt, so, salinity, sea_water_salinity
 ```
 
 不要静默 `isel(time=0)`。如果确实只要第一帧，明确写 `da = da.isel(time=0)` 并在图注或回复里说明；时间平均写 `da.mean("time")`；Hovmöller 保留 `time`。

@@ -121,6 +121,40 @@ def test_set_degree_ticks_rejects_non_rectangular_projection():
     plt.close(fig)
 
 
+def test_projection_policy():
+    pytest.importorskip("cartopy.crs")
+    regional = op.projection_for_region(112, 132, 17, 32.5)
+    assert regional.kind == "mercator"
+    assert regional.label_mode == "formatter"
+
+    global_map = op.projection_for_region(0, 360, -80, 80)
+    assert global_map.kind == "global"
+    assert global_map.label_mode == "gridlines"
+
+    polar = op.projection_for_region(0, 360, 80, 90)
+    assert polar.kind == "north_polar"
+    assert polar.label_mode == "gridlines"
+
+    high_lat = op.projection_for_region(10, 40, 60, 75)
+    assert high_lat.kind == "lambert"
+    assert high_lat.label_mode == "gridlines"
+
+    dateline = op.projection_for_region(170, -170, -10, 10)
+    assert dateline.kind == "mercator"
+
+
+def test_set_map_ticks_uses_gridlines_on_global_projection():
+    ccrs = pytest.importorskip("cartopy.crs")
+    spec = op.projection_for_region(0, 360, -80, 80)
+    fig, ax = plt.subplots(subplot_kw={"projection": spec.crs})
+    ax.set_extent([0, 360, -80, 80], crs=ccrs.PlateCarree())
+    xticks, yticks = op.set_map_ticks(ax, spec, [0, 360, -80, 80])
+    assert xticks.size > 0
+    assert yticks.size > 0
+    fig.canvas.draw()
+    plt.close(fig)
+
+
 def test_auto_time_axis_spans():
     fig, ax = plt.subplots()
     yearly = np.arange("2018-01-01", "2022-01-01", dtype="datetime64[D]")

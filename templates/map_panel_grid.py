@@ -43,8 +43,9 @@ from ocean_plot import (  # noqa: E402
     check_figure,
     colorbar_ticks,
     get_cmap,
+    projection_for_region,
     save_figure,
-    set_degree_ticks,
+    set_map_ticks,
     set_ocean_style,
     validate_grid,
 )
@@ -100,7 +101,11 @@ def main() -> None:
     for field in fields:
         validate_grid(lon, lat, field, name="synthetic_ssh")
 
-    projection = ccrs.PlateCarree()
+    map_spec = projection_for_region(
+        lon_min, lon_max, lat_min, lat_max, kind="auto",
+    )
+    projection = map_spec.crs
+    data_crs = ccrs.PlateCarree()
     lon_step, lat_step = auto_tick_step(
         lon_min, lon_max, lat_min, lat_max,
         figsize=(fig_width, fig_height), ncols=2, nrows=3,
@@ -126,14 +131,14 @@ def main() -> None:
         pcm = ax.pcolormesh(
             lon, lat, field,
             cmap=cmap, vmin=vmin, vmax=vmax,
-            shading="auto", transform=projection, rasterized=True,
+            shading="auto", transform=data_crs, rasterized=True,
         )
-        ax.set_extent([lon_min, lon_max, lat_min, lat_max], crs=projection)
+        ax.set_extent([lon_min, lon_max, lat_min, lat_max], crs=data_crs)
         add_map_features(ax, scale=map_scale)
         ax.set_aspect(map_aspect)
 
-        set_degree_ticks(
-            ax, [lon_min, lon_max, lat_min, lat_max],
+        set_map_ticks(
+            ax, map_spec, [lon_min, lon_max, lat_min, lat_max],
             lon_step=lon_step, lat_step=lat_step, fontsize=font_tick,
         )
         # shared labels: y only on the left column, x only on the bottom row

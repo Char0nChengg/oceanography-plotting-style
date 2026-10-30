@@ -49,7 +49,7 @@ Segmented, truncated, or linearly composited colorbars are acceptable when they 
 
 ### 4. Analysis figures use the same visual language
 
-CCA, wavelet, spectral, and EMD figures are not a separate aesthetic. They follow the same rules: figure first, honest colormaps, shared coordinates, restrained text. See [figure-recipes](../references/figure-recipes.md) for figure-specific starting points.
+CCA, wavelet, spectral, and EMD figures are not a separate aesthetic. They follow the same rules: figure first, honest colormaps, shared coordinates, restrained text. See the [figure catalog](../references/figure-catalog.md) and [recipes](../references/recipes/README.md) for figure-specific starting points.
 
 These choices have been used in the author's own submissions and revisions and have been examined by journal editors and reviewers. That does not make them universal, and it does not replace peer review or checks of statistical assumptions. A future tutorial series will present **question-driven ocean/atmosphere statistical analysis**, connecting why an analysis is chosen, how its assumptions are checked, and how the result is drawn.
 

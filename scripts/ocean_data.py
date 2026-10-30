@@ -12,21 +12,12 @@ import warnings
 import numpy as np
 
 from ocean_plot import iqr_filter, keep_largest_region, validate_grid  # re-export
-
-DIM_ALIASES = {
-    "lon": {"lon", "longitude", "xlon", "x"},
-    "lat": {"lat", "latitude", "ylat", "y"},
-    "time": {"time", "t", "date"},
-    "depth": {"depth", "z", "lev", "level"},
-}
-
-VAR_ALIASES = {
-    "ssh": ("ssh", "zos", "sla", "adt", "sea_surface_height"),
-    "u": ("u", "uo", "water_u", "eastward_sea_water_velocity"),
-    "v": ("v", "vo", "water_v", "northward_sea_water_velocity"),
-    "temp": ("temp", "thetao", "temperature", "sea_water_temperature"),
-    "salt": ("salt", "so", "salinity", "sea_water_salinity"),
-}
+from ocean_vocab import (  # re-export the vocabulary for backwards compatibility
+    DIM_ALIASES,
+    VAR_ALIASES,
+    inspect_dataset,
+    resolve_variable,
+)
 
 
 def _xarray():
@@ -162,26 +153,31 @@ def _check_nonempty(ds, lon_bounds, lat_bounds, lon, lat):
     return ds
 
 
-def pick_var(ds, key: str):
-    """Return a variable by canonical name or common CF alias."""
-    for name in VAR_ALIASES.get(key, (key,)):
-        if name in ds:
-            return ds[name]
-    raise KeyError(f"variable {key!r} not found; available: {list(ds.data_vars)}")
+def pick_var(ds, key: str, profile: str | None = None):
+    """Return one variable by semantic key, CF name, or common alias.
+
+    Ambiguous semantic keys raise ``ValueError`` instead of silently choosing
+    the first candidate.  Use an exact NetCDF variable name or a more specific
+    semantic key (for example ``u_surface`` rather than ``u``).
+    """
+    name = resolve_variable(ds, key, profile=profile)
+    return ds[name]
 
 
-def load_for_plot(path, var: str, region=None, time_sel=None):
+def load_for_plot(path, var: str, region=None, time_sel=None, profile: str | None = None):
     """Load one variable for plotting, preserving time unless explicitly selected.
 
     ``time_sel`` may be an integer, slice, or label dict.  ``None`` keeps the
     whole time dimension, which is required for Hovmöller/time-series figures.
+    ``profile`` is an optional product hint such as ``"era5"`` or ``"glorys"``;
+    generic CF/alias resolution remains the default.
     """
     xr = _xarray()
     with xr.open_dataset(path, decode_times=True, mask_and_scale=True) as ds:
         ds = canonicalize_dims(ds)
         if region is not None:
             ds = subset_region(ds, region["lon"], region["lat"])
-        da = pick_var(ds, var)
+        da = pick_var(ds, var, profile=profile)
         if time_sel is not None and "time" in da.dims:
             if isinstance(time_sel, dict):
                 da = da.sel(time_sel)

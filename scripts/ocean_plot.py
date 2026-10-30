@@ -13,6 +13,7 @@ from __future__ import annotations
 import datetime as _dt
 import math
 import warnings
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Iterable, Sequence
 
@@ -24,7 +25,7 @@ import numpy as np
 from matplotlib import font_manager
 from matplotlib.colors import LinearSegmentedColormap
 
-__version__ = "0.2.1"
+__version__ = "0.3.0"
 
 
 # ---------------------------------------------------------------------------
@@ -168,6 +169,118 @@ def degree_ticks(vmin: float, vmax: float, step: float) -> np.ndarray:
     return np.round(vals, 10)
 
 
+@dataclass(frozen=True)
+class MapSpec:
+    """Display projection plus the matching degree-label strategy."""
+
+    crs: object
+    kind: str
+    label_mode: str
+    reason: str
+
+
+def projection_for_region(
+    lon_min: float,
+    lon_max: float,
+    lat_min: float,
+    lat_max: float,
+    kind: str = "auto",
+    central_longitude: float | None = None,
+) -> MapSpec:
+    """Pick a display projection for a lon/lat region.
+
+    The default policy is regional Mercator for ordinary map extents, Robinson
+    for global maps, and polar stereographic when a region reaches a pole.
+    Data should still be drawn with ``transform=PlateCarree()``; this function
+    only chooses the map axes projection.
+    """
+    import cartopy.crs as ccrs
+
+    lon_min, lon_max = float(lon_min), float(lon_max)
+    lat_min, lat_max = float(lat_min), float(lat_max)
+    if lat_min >= lat_max:
+        raise ValueError("lat_min must be < lat_max")
+    if lat_min < -90 or lat_max > 90:
+        raise ValueError("latitude must be within [-90, 90]")
+
+    # A descending pair is treated as a dateline-crossing interval, e.g.
+    # 170 -> -170 means a 20-degree box centred on 180.
+    lon_span = (lon_max - lon_min) % 360.0
+    if lon_span == 0:
+        lon_span = 360.0
+    lat_span = lat_max - lat_min
+    midpoint = (
+        lon_min + lon_span / 2.0
+        if central_longitude is None else float(central_longitude)
+    )
+    requested = str(kind).lower().strip()
+
+    if requested == "auto":
+        if lon_span >= 300 and lat_span >= 150:
+            requested = "global"
+        elif lat_max >= 80:
+            requested = "north_polar"
+        elif lat_min <= -80:
+            requested = "south_polar"
+        elif lon_span >= 300:
+            requested = "global"
+        elif lat_min >= 55 or lat_max <= -55:
+            requested = "lambert"
+        else:
+            requested = "mercator"
+
+    if requested == "mercator":
+        return MapSpec(
+            ccrs.Mercator(central_longitude=midpoint),
+            "mercator",
+            "formatter",
+            "regional map; Mercator preserves local angles",
+        )
+    if requested == "platecarree":
+        return MapSpec(
+            ccrs.PlateCarree(central_longitude=midpoint),
+            "platecarree",
+            "formatter",
+            "explicit equirectangular quick-look",
+        )
+    if requested in {"global", "robinson"}:
+        return MapSpec(
+            ccrs.Robinson(central_longitude=0.0),
+            "global",
+            "gridlines",
+            "global map; avoid Mercator area distortion and invisible poles",
+        )
+    if requested in {"north_polar", "arctic"}:
+        return MapSpec(
+            ccrs.NorthPolarStereo(central_longitude=0.0),
+            "north_polar",
+            "gridlines",
+            "north polar map",
+        )
+    if requested in {"south_polar", "antarctic"}:
+        return MapSpec(
+            ccrs.SouthPolarStereo(central_longitude=0.0),
+            "south_polar",
+            "gridlines",
+            "south polar map",
+        )
+    if requested in {"lambert", "lcc"}:
+        return MapSpec(
+            ccrs.LambertConformal(
+                central_longitude=midpoint,
+                central_latitude=(lat_min + lat_max) / 2.0,
+                standard_parallels=(lat_min, lat_max),
+            ),
+            "lambert",
+            "gridlines",
+            "regional high-latitude map",
+        )
+    raise ValueError(
+        "kind must be auto, mercator, platecarree, global, north_polar, "
+        f"south_polar, or lambert; got {kind!r}"
+    )
+
+
 def set_degree_ticks(
     ax,
     extent: Sequence[float],
@@ -224,6 +337,49 @@ def set_degree_ticks(
         axis="both", which="major", direction="in", length=3.5,
         width=0.8, labelsize=fontsize,
     )
+    return xticks, yticks
+
+
+def set_map_ticks(
+    ax,
+    spec: MapSpec,
+    extent: Sequence[float],
+    lon_step: float | None = None,
+    lat_step: float | None = None,
+    fontsize: float | None = None,
+    target_ticks: int = 6,
+) -> tuple[np.ndarray, np.ndarray]:
+    """Apply degree labels appropriate for a :class:`MapSpec`.
+
+    Rectangular projections use Cartopy's longitude/latitude formatters;
+    global, polar, and Lambert maps use labelled gridlines instead.
+    """
+    import cartopy.crs as ccrs
+
+    lon_min, lon_max, lat_min, lat_max = map(float, extent)
+    if lon_step is None:
+        lon_step = degree_step(abs(lon_max - lon_min), target_ticks)
+    if lat_step is None:
+        lat_step = degree_step(abs(lat_max - lat_min), target_ticks)
+    xticks = degree_ticks(lon_min, lon_max, lon_step)
+    yticks = degree_ticks(lat_min, lat_max, lat_step)
+
+    if spec.label_mode == "formatter":
+        return set_degree_ticks(
+            ax, extent, lon_step=lon_step, lat_step=lat_step,
+            fontsize=fontsize, target_ticks=target_ticks,
+        )
+
+    gl = ax.gridlines(
+        crs=ccrs.PlateCarree(), draw_labels=True,
+        xlocs=xticks, ylocs=yticks,
+        linewidth=0.4, color="gray", alpha=0.45, linestyle=":",
+    )
+    gl.top_labels = False
+    gl.right_labels = False
+    if fontsize is not None:
+        gl.xlabel_style = {"size": fontsize}
+        gl.ylabel_style = {"size": fontsize}
     return xticks, yticks
 
 
@@ -818,10 +974,21 @@ def cli(argv=None) -> int:
         description="Helpers for publication-quality oceanography figures.",
     )
     parser.add_argument("--self-test", action="store_true", help="run built-in smoke tests")
+    parser.add_argument(
+        "--inspect", metavar="FILE",
+        help="inspect a NetCDF file's coordinates and variable candidates as JSON",
+    )
     parser.add_argument("--version", action="version", version=f"%(prog)s {__version__}")
     args = parser.parse_args(argv)
     if args.self_test:
         _self_test()
+        return 0
+    if args.inspect:
+        import json
+
+        from ocean_vocab import inspect_file
+
+        print(json.dumps(inspect_file(args.inspect), ensure_ascii=False, indent=2))
         return 0
     parser.print_help()
     return 0

@@ -58,7 +58,9 @@ Map + time series + vertical section (synthetic data):
 
 | Capability | Description |
 |---|---|
-| Regional maps | PlateCarree, lon/lat formatters, adaptive ticks, land/coastline, aspect protection |
+| Regional maps | Regional Mercator default; Robinson for global, PolarStereo for polar; formatter/gridline labels and adaptive ticks |
+| NetCDF adaptation | `valid_time`/`nav_lon`/`uos/vos` aliases, CF/profiles, ambiguity reports, `ocean-plot --inspect` |
+| Figure catalog | Catalog-first routing; recipes split by maps/sections/time/statistics/spectral/flow, with planned status |
 | Multi-panel layouts | Shared colorbars, hidden inner labels, panel letters, GridSpec / explicit colorbar column |
 | Vertical sections / Hovmöller | Depth direction, time axis, symmetric/asymmetric limits, transpose checks |
 | Time series | Mean ± standard deviation, rolling statistics, automatic time locators |
@@ -133,7 +135,8 @@ import cartopy.crs as ccrs
 from ocean_data import grid_arrays, load_for_plot
 from ocean_plot import (
     add_map_features, add_panel_label, auto_tick_step, check_figure,
-    get_cmap, save_figure, set_degree_ticks, set_ocean_style, validate_grid,
+    get_cmap, projection_for_region, save_figure, set_map_ticks,
+    set_ocean_style, validate_grid,
 )
 from ocean_journal import get_journal, apply_journal_style
 
@@ -154,25 +157,26 @@ frame = da.isel(time=0) if "time" in da.dims else da
 lon, lat, ssh = grid_arrays(frame)
 validate_grid(lon, lat, ssh)
 
+map_spec = projection_for_region(lon_min, lon_max, lat_min, lat_max, kind="auto")
+data_crs = ccrs.PlateCarree()
 fig, ax = plt.subplots(
     figsize=(fig_width, 4.8),
-    subplot_kw={"projection": ccrs.PlateCarree()},
+    subplot_kw={"projection": map_spec.crs},
     constrained_layout=True,
 )
-projection = ccrs.PlateCarree()
 mesh = ax.pcolormesh(
     lon, lat, ssh, cmap=get_cmap("cmo.dense"),
     vmin=0, vmax=0.3, shading="auto",
-    transform=projection, rasterized=True,
+    transform=data_crs, rasterized=True,
 )
-ax.set_extent([lon_min, lon_max, lat_min, lat_max], crs=projection)
+ax.set_extent([lon_min, lon_max, lat_min, lat_max], crs=data_crs)
 add_map_features(ax, scale="50m")
 step_x, step_y = auto_tick_step(
     lon_min, lon_max, lat_min, lat_max,
     figsize=(fig_width, 4.8), fontsize=journal.tick_pt,
 )
-set_degree_ticks(ax, [lon_min, lon_max, lat_min, lat_max],
-                 lon_step=step_x, lat_step=step_y)
+set_map_ticks(ax, map_spec, [lon_min, lon_max, lat_min, lat_max],
+              lon_step=step_x, lat_step=step_y)
 ax.set_aspect("equal")
 add_panel_label(ax, "(a)")
 
@@ -208,19 +212,40 @@ Without `--demo`, the templates exit immediately and remind you to replace the s
 ## Data preparation
 
 ```python
+from ocean_vocab import inspect_dataset
 from ocean_data import canonicalize_dims, subset_region, pick_var, grid_arrays
 
-ds = canonicalize_dims(ds)
+print(inspect_dataset(ds).as_dict())   # coordinates and variable candidates first
+ds = canonicalize_dims(ds)              # valid_time/nav_lon etc.
 ds = subset_region(ds, lon_bounds=(112, 132), lat_bounds=(17, 32.5))
-da = pick_var(ds, "ssh")
+da = pick_var(ds, "ssh")                # semantic key, not a guessed name
 lon, lat, data = grid_arrays(da)
 ```
 
+Or inspect from the CLI:
+
+```bash
+ocean-plot --inspect data.nc
+```
+
 - Supports 1-D regular and 2-D curvilinear longitude/latitude; `grid_arrays()` does not require coordinate names to equal dimension names.
+- Recognizes `valid_time`, `nav_lon/nav_lat`, `uos/vos`, `siconc/sithick`, and similar conventions; ambiguity is reported instead of silently choosing the first variable.
 - 1-D dateline-crossing and negative-longitude boxes return monotonic unwrapped 0–360° coordinates (possibly > 360). Use `central_longitude=180` or an equivalent projection.
 - 2-D curvilinear coordinates are masked in place and keep their native longitudes; they are never unwrapped or sorted.
 - Full-globe boxes `(-180, 180)` / `(0, 360)` do not drop longitudes.
 - `load_for_plot()` preserves the time dimension unless you explicitly select a time; it never silently takes `time=0`.
+
+Naming and diagnostics: [netcdf-profiles.md](references/netcdf-profiles.md).
+
+## Projection
+
+- Regional mid/low latitudes: **Mercator** (default)
+- Global: Robinson / EqualEarth
+- Polar: North/SouthPolarStereo
+- High-latitude regional: LambertConformal
+- Data transform is always `ccrs.PlateCarree()`
+
+`projection_for_region()` chooses the axes projection and `set_map_ticks()` chooses longitude/latitude formatters or gridline labels. See the [figure catalog](references/figure-catalog.md) and [tutorials](docs/tutorials/README.md).
 
 ---
 
@@ -284,11 +309,15 @@ apply_journal_style("ams")
 ├── README.en.md              # English introduction
 ├── CHANGELOG.md
 ├── references/
+│   ├── figure-catalog.md     # Figure index: variables, projection, recipe, status
 │   ├── style-reference.md    # Typography, layout, maps, colormaps, acceptance
 │   ├── data-prep.md          # xarray, regions, longitude, filtering
-│   └── figure-recipes.md     # Hovmöller, sections, FFT, quiver
+│   ├── netcdf-profiles.md    # CF/product names and dataset diagnostics
+│   ├── figure-recipes.md     # Compatibility entry
+│   └── recipes/              # Domain-specific recipes
 ├── scripts/
-│   ├── ocean_plot.py         # Ticks, maps, colormaps, QA, saving
+│   ├── ocean_plot.py         # Projection, ticks, maps, colormaps, QA, saving
+│   ├── ocean_vocab.py        # Variable/coordinate aliases, CF, diagnostics
 │   ├── ocean_data.py         # Dimension normalization, regions, variables
 │   ├── ocean_spectral.py     # FFT + AR(1) thresholds
 │   ├── ocean_journal.py      # Journal presets
@@ -300,6 +329,7 @@ apply_journal_style("ams")
 ├── docs/
 │   ├── style-philosophy.en.md
 │   ├── style-philosophy.md
+│   ├── tutorials/            # Human tutorials; ignored by default for plotting
 │   └── assets/
 └── .github/workflows/
     ├── ci.yml
@@ -332,7 +362,10 @@ CI installs Cartopy on Ubuntu with Python 3.10/3.12/3.13, runs the tests, self-t
 - Focused on regular 1-D and curvilinear 2-D longitude/latitude grids. It does **not** automatically convert ROMS staggered grids, unstructured triangular meshes, or projected coordinates in metres/kilometres.
 - Journal widths and font sizes are practical defaults, not a substitute for current author guidelines.
 - `auto_tick_step()` is still a heuristic; `check_figure()` catches actual tick overlap, but this is not pixel-level image regression.
-- `set_degree_ticks()` supports rectangular projections only (PlateCarree, Mercator, and similar); use `gridlines(draw_labels=True)` for LCC/Robinson-style maps.
+- `set_degree_ticks()` supports rectangular projections only (PlateCarree, Mercator, and similar); use the gridlines mode of `set_map_ticks()` for LCC/Robinson-style maps.
+- Regional maps default to Mercator; global maps use Robinson, polar maps use PolarStereo, and high-latitude regions can use Lambert explicitly.
+- `ocean_vocab` reports ambiguity instead of silently choosing among multiple variable candidates; add a profile and a synthetic test for a new convention.
+- `docs/tutorials/` is human-facing; AI plotting tasks ignore it by default.
 - CVD matrices are approximations; use a dedicated tool for final accessibility review.
 - The AR(1) threshold assumes a single red-noise null hypothesis; complex spectral peaks need problem-specific tests.
 - Natural Earth data are downloaded on first use; cache them for offline work.

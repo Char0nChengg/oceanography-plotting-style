@@ -1,6 +1,6 @@
 # 风格参考：字体、版面、地图、色标
 
-本文件是 [SKILL.md](../SKILL.md) 的详细展开，并与 [data-prep](data-prep.md)、[figure-recipes](figure-recipes.md) 分工：这里只讲**风格与版面规则**，完整图型配方放在 figure-recipes。规则默认服务论文印刷版；网页/幻灯片可以放大字号，但比例关系仍适用。
+本文件是 [SKILL.md](../SKILL.md) 的详细展开，并与 [data-prep](data-prep.md)、[recipes](recipes/README.md) 分工：这里只讲**风格与版面规则**，完整图型配方放在 recipes。规则默认服务论文印刷版；网页/幻灯片可以放大字号，但比例关系仍适用。
 
 > 本文的代码片段是风格示例，默认位于已读取数据、已有 `fig`/`ax` 的 `main()` 中；完整可运行版本见 [templates](../templates/)。项目风格是作者的个人偏好，不是期刊官方规范。
 
@@ -53,12 +53,14 @@ mpl.rcParams.update({
 ### 3.1 简单网格
 
 ```python
-import cartopy.crs as ccrs
 import matplotlib.pyplot as plt
 
+from ocean_plot import projection_for_region
+
+map_spec = projection_for_region(lon_min, lon_max, lat_min, lat_max)
 fig, axes = plt.subplots(
     3, 2, figsize=(7.2, 8.4),
-    subplot_kw={"projection": ccrs.PlateCarree()},
+    subplot_kw={"projection": map_spec.crs},
     constrained_layout=True,
 )
 axes = axes.ravel()
@@ -69,15 +71,17 @@ axes = axes.ravel()
 ### 3.2 GridSpec 混合面板
 
 ```python
-import cartopy.crs as ccrs
 import matplotlib.pyplot as plt
+
+from ocean_plot import projection_for_region
 
 fig = plt.figure(figsize=(7.2, 5.2), layout="constrained")
 gs = fig.add_gridspec(
     2, 2, width_ratios=[1.25, 1.0], height_ratios=[1, 1],
     hspace=0.06, wspace=0.08,
 )
-ax_map = fig.add_subplot(gs[:, 0], projection=ccrs.PlateCarree())
+map_spec = projection_for_region(lon_min, lon_max, lat_min, lat_max)
+ax_map = fig.add_subplot(gs[:, 0], projection=map_spec.crs)
 ax_ts = fig.add_subplot(gs[0, 1])
 ax_prof = fig.add_subplot(gs[1, 1])
 ```
@@ -90,10 +94,11 @@ ax_prof = fig.add_subplot(gs[1, 1])
 
 ### 4.1 投影
 
-- 默认 `ccrs.PlateCarree()`，适合低中纬区域图。
-- 高纬、跨大范围经度或需要保角/等面积时，改用 `Mercator`、`LambertConformal`、`Robinson` 等；不要迷信“始终 PlateCarree”。
+- **区域中低纬默认 Mercator**；它保持局部角度，适合流场和温盐场。全球范围不要用 Mercator：改用 Robinson/EqualEarth；极地用 North/SouthPolarStereo；高纬区域可用 LambertConformal。
+- 数据坐标始终用 `transform=ccrs.PlateCarree()`；地图 axes 投影和显示范围是两件事。
+- `projection_for_region()` 是默认策略入口，返回 `MapSpec`（CRS + `label_mode`）。`set_map_ticks()` 会根据 `label_mode` 自动选择经纬度 formatter 或 labelled gridlines。
 - 跨日界线时，先统一到一种经度约定。项目 `subset_region()` 的 1D 负经度/跨日界线输出是展开的 0–360，使用 `ccrs.PlateCarree(central_longitude=180)` 或等价投影；2D 曲线坐标保留原生经度。检查 `set_extent` 是否把图拉成全球。
-- **Cartopy 的经纬度 formatter 只适用于矩形投影**。`set_degree_ticks()` 对 LCC/Robinson 等会明确抛 `NotImplementedError`；这些投影用 `gridlines(draw_labels=True)`。
+- **Cartopy 的经纬度 formatter 只适用于矩形投影**。`set_degree_ticks()` 对 LCC/Robinson 等会明确抛 `NotImplementedError`；这些投影用 `set_map_ticks()`（内部走 gridlines）。
 
 ### 4.2 地图要素
 
@@ -133,14 +138,15 @@ ax.set_aspect("equal")
 ### 4.3 自适应经纬度刻度
 
 ```python
-from ocean_plot import auto_tick_step, set_degree_ticks
+from ocean_plot import auto_tick_step, projection_for_region, set_map_ticks
 
+map_spec = projection_for_region(lon_min, lon_max, lat_min, lat_max, kind="auto")
 lon_step, lat_step = auto_tick_step(
     lon_min, lon_max, lat_min, lat_max,
     figsize=(fig_width, fig_height), ncols=2, nrows=3,
 )
-set_degree_ticks(ax, [lon_min, lon_max, lat_min, lat_max],
-                 lon_step=lon_step, lat_step=lat_step)
+set_map_ticks(ax, map_spec, [lon_min, lon_max, lat_min, lat_max],
+              lon_step=lon_step, lat_step=lat_step)
 ```
 
 原则：根据**子图物理尺寸**估算可容纳的标签数，再从“好看”的步长集合里选；不要固定 2°/3°/4°。跨日界线或 0–360 经度要先转换，再算步长。
@@ -242,7 +248,7 @@ cf = ax.contourf(lon, lat, data, levels=levels, cmap=get_cmap("cmo.dense"),
 
 `levels` 必须严格递增且唯一；`cbar.set_ticks(levels)` 通常太密，改成 4–7 个代表值。
 
-Hovmöller、垂向剖面、时间序列、散点、FFT、quiver、粒子轨迹等完整配方见 [figure-recipes](figure-recipes.md)，这里不重复维护第二份代码。
+Hovmöller、垂向剖面、时间序列、散点、FFT、quiver、粒子轨迹等完整配方见 [recipes](recipes/README.md)，这里不重复维护第二份代码。
 
 ## 7. 坐标轴
 
@@ -308,6 +314,7 @@ python -m pytest -q
 python scripts/ocean_plot.py --self-test
 python templates/map_panel_grid.py --demo
 python templates/mixed_panel_grid.py --demo
+ocean-plot --inspect data.nc
 ```
 
 预期：
